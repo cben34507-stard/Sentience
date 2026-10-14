@@ -73,13 +73,13 @@ struct StrandsCanvas: View {
 
     var body: some View {
         Canvas { gc, size in
-            let w = size.width
-            let h = size.height
-            let span = w * (0.86 + (1.15 - 0.86) * expand)
-            let amp = h * (0.11 + 0.1 * expand)
-            let pinch = 1 - 0.85 * expand
-            let cy = h / 2
-            let x0 = w / 2 - span / 2
+            let w: Double = size.width
+            let h: Double = size.height
+            let span: Double = w * (0.86 + 0.29 * expand)
+            let amp: Double = h * (0.11 + 0.1 * expand)
+            let pinch: Double = 1 - 0.85 * expand
+            let cy: Double = h / 2
+            let x0: Double = w / 2 - span / 2
             let colors: [Color] = dark
                 ? [Color(hex: 0x3FD1C0), Color(hex: 0xFF6F9A), Color(hex: 0xFFAD5C), Color(hex: 0x9B8CFF), Color(hex: 0x3FD1C0)]
                 : [Color(hex: 0x14A394), Color(hex: 0xE2507A), Color(hex: 0xEE8A2F), Color(hex: 0x6D5BD8), Color(hex: 0x14A394)]
@@ -89,25 +89,37 @@ struct StrandsCanvas: View {
             for r in 0..<2 {
                 let dir: Double = r == 0 ? 1 : -1
                 for i in 0..<strands {
-                    let theta = Double(i) / Double(strands) * .pi
+                    let theta: Double = Double(i) / Double(strands) * Double.pi
                     var path = Path()
                     for j in 0...n {
-                        let s = Double(j) / Double(n)
-                        let x = x0 + s * span
-                        let knot = pow(sin(.pi * s), 0.85)
-                        let env = (pinch * knot + (1 - pinch)) * (0.78 + 0.22 * sin(2 * .pi * 0.55 * s + time * 0.21 + Double(r)))
-                        let phi = 2 * .pi * (1.15 * s + Double(r) * 0.5) + time * 0.5 * dir
-                        let width = 0.55 + 0.45 * sin(2 * .pi * 0.8 * s - time * 0.33 + Double(r) * 2.1)
-                        let drift = 0.32 * sin(2 * .pi * 0.42 * s + time * 0.23 + Double(r) * 1.3)
-                        let y = cy + amp * env * (width * cos(theta + phi) * 0.92 + drift)
+                        let sv: Double = Double(j) / Double(n)
+                        let x: Double = x0 + sv * span
+                        let y: Double = Self.strandY(s: sv, theta: theta, ribbon: Double(r), dir: dir, time: time, cy: cy, amp: amp, pinch: pinch)
                         if j == 0 { path.move(to: CGPoint(x: x, y: y)) } else { path.addLine(to: CGPoint(x: x, y: y)) }
                     }
                     var g = gc
-                    g.opacity = (0.28 + 0.72 * abs(sin(theta + Double(r) * 0.7))) * (r == 0 ? 1 : 0.8)
+                    let depth: Double = 0.28 + 0.72 * abs(sin(theta + Double(r) * 0.7))
+                    g.opacity = depth * (r == 0 ? 1.0 : 0.8)
                     g.stroke(path, with: shading, lineWidth: 0.8)
                 }
             }
         }
+    }
+}
+
+extension StrandsCanvas {
+    /// Vertical position of one strand at fraction `s` across the bundle.
+    /// Split into typed steps so the Swift type checker stays fast.
+    static func strandY(s: Double, theta: Double, ribbon r: Double, dir: Double, time: Double, cy: Double, amp: Double, pinch: Double) -> Double {
+        let twoPi: Double = 2 * Double.pi
+        let knot: Double = pow(sin(Double.pi * s), 0.85)
+        let wobble: Double = 0.78 + 0.22 * sin(twoPi * 0.55 * s + time * 0.21 + r)
+        let env: Double = (pinch * knot + (1 - pinch)) * wobble
+        let phi: Double = twoPi * (1.15 * s + r * 0.5) + time * 0.5 * dir
+        let width: Double = 0.55 + 0.45 * sin(twoPi * 0.8 * s - time * 0.33 + r * 2.1)
+        let drift: Double = 0.32 * sin(twoPi * 0.42 * s + time * 0.23 + r * 1.3)
+        let twist: Double = width * cos(theta + phi) * 0.92
+        return cy + amp * env * (twist + drift)
     }
 }
 
