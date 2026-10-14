@@ -1,0 +1,252 @@
+import { Router } from "express";
+import multer from "multer";
+import path from "node:path";
+import {
+  EventInputSchema,
+  FactInputSchema,
+  GoalInputSchema,
+  ProfileInputSchema,
+  SyncPushSchema,
+  isoDate,
+  addDays,
+} from "@sentience/shared";
+import { z } from "zod";
+import type { DB } from "../lib/db.js";
+import { HttpError, parse, wrap } from "../lib/http.js";
+import { dayRange, todayIn } from "../lib/time.js";
+import * as profile from "../services/profile.js";
+import * as events from "../services/events.js";
+import * as health from "../services/health.js";
+import * as healthImport from "../services/healthImport.js";
+import * as goals from "../services/goals.js";
+import { computeAchievements, loggingStreak } from "../services/achievements.js";
+import { buildBundle, bundleToMarkdown } from "../services/exportBundle.js";
+import { sync } from "../services/sync.js";
+
+const DateQuery = z.object({ date: isoDate.optional() });
+const RangeQuery = z.object({ from: isoDate, to: isoDate });
+
+export function buildRouter(db: DB, uploadDir: string): Router {
+  const r = Router();
+  const upload = multer({ dest: uploadDir, limits: { fileSize: 20 * 1024 ** 3 } });
+  const tz = () => profile.getTimezone(db);
+
+  r.get("/health-check", (_req, res) => res.json({ ok: true, time: new Date().toISOString() }));
+
+  /* ---------- profile & facts ---------- */
+  r.get("/profile", wrap(() => profile.getProfile(db)));
+  r.put("/profile", wrap((req) => profile.updateProfile(db, parse(ProfileInputSchema, req.body))));
+
+  r.get("/facts", wrap((req) => profile.listFacts(db, typeof req.query.kind === "string" ? req.query.kind : undefined)));
+  r.post("/facts", wrap((req, res) => {
+    res.status(201);
+    return profile.createFact(db, parse(FactInputSchema, req.body));
+  }));
+  r.post("/facts/bulk", wrap((req, res) => {
+    const items = parse(z.array(FactInputSchema).max(5000), req.body);
+    const created = db.transaction(() => items.map((i) => profile.createFact(db, i)))();
+    res.status(201);
+    return { created: created.length };
+  }));
+  r.put("/facts/:id", wrap((req) => {
+    const f = profile.updateFact(db, req.params.id, parse(FactInputSchema.partial(), req.body));
+    if (!f) throw new HttpError(404, "fact not found");
+    return f;
+  }));
+  r.delete("/facts/:id", wrap((req, res) => {
+    if (!profile.deleteFact(db, req.params.id)) throw new HttpError(404, "fact not found");
+    res.status(204).end();
+  }));
+
+  /* ---------- events ---------- */
+  r.get("/events", wrap((req) => {
+    const q = req.query as Record<string, string>;
+    if (q.date) return events.listEventsForDay(db, parse(isoDate, q.date), tz());
+    if (q.from && q.to) {
+      const { from, to } = parse(RangeQuery, q);
+      return events.listEvents(db, dayRange(from, tz()).start, dayRange(to, tz()).end);
+    }
+    return events.listEventsForDay(db, todayIn(tz()), tz());
+  }));
+  r.post("/events", wrap((req, res) => {
+    res.status(201);
+    return events.createEvent(db, parse(EventInputSchema, req.body));
+  }));
+  r.get("/events/:id", wrap((req) => {
+    const e = events.getEvent(db, req.params.id);
+    if (!e) throw new HttpError(404, "event not found");
+    return e;
+  }));
+  r.put("/events/:id", wrap((req) => {
+    const e = events.updateEvent(db, req.params.id, parse(EventInputSchema.partial(), req.body));
+    if (!e) throw new HttpError(404, "event not found");
+    return e;
+  }));
+  r.delete("/events/:id", wrap((req, res) => {
+    if (!events.deleteEvent(db, req.params.id)) throw new HttpError(404, "event not found");
+    res.status(204).end();
+  }));
+
+  /* ---------- day view: everything the timeline needs in one call ---------- */
+  r.get("/day", wrap((req) => {
+    const { date = todayIn(tz()) } = parse(DateQuery, req.query);
+    const zone = tz();
+    return {
+      date,
+      timezone: zone,
+      range: dayRange(date, zone),
+      events: events.listEventsForDay(db, date, zone),
+      health: health.dailySummary(db, date, zone),
+      heartRate: health.seriesForDay(db, health.T.hr, date, zone),
+      stepsByHour: health.hourlySeries(db, health.T.steps, date, zone, "sum"),
+      goals: goals.allGoalStatuses(db, date, zone),
+    };
+  }));
+
+  /** Lightweight per-day overview for calendar/week strips. */
+  r.get("/overview", wrap((req) => {
+    const { from, to } = parse(RangeQuery, req.query);
+    const zone = tz();
+    const out = [];
+    for (let d = from; d <= to; d = addDays(d, 1)) {
+      const evs = events.listEventsForDay(db, d, zone);
+      const h = health.dailySummary(db, d, zone);
+      out.push({
+        date: d,
+        eventCount: evs.length,
+        categories: [...new Set(evs.map((e) => e.category))],
+        steps: h?.steps ?? null,
+        sleepMin: h?.sleepMin ?? null,
+        restingHr: h?.restingHr ?? null,
+        hrAvg: h?.hrAvg ?? null,
+        activeKcal: h?.activeKcal ?? null,
+        workouts: h?.workouts.length ?? 0,
+        moodAvg: avg(evs.filter((e) => e.category === "mood" && e.rating != null).map((e) => e.rating as number)),
+      });
+    }
+    return { from, to, days: out, streak: loggingStreak(db, zone, todayIn(zone)) };
+  }));
+
+  /* ---------- health ---------- */
+  r.get("/health/types", wrap(() => health.listTypes(db)));
+  r.get("/health/coverage", wrap(() => health.healthCoverage(db)));
+  r.get("/health/samples", wrap((req) => {
+    const q = parse(z.object({ type: z.string(), date: isoDate.optional(), from: isoDate.optional(), to: isoDate.optional() }), req.query);
+    const zone = tz();
+    if (q.date) return health.seriesForDay(db, q.type, q.date, zone);
+    if (q.from && q.to) return health.listSamples(db, q.type, dayRange(q.from, zone).start, dayRange(q.to, zone).end);
+    throw new HttpError(400, "pass date or from+to");
+  }));
+  r.get("/health/summary", wrap((req) => {
+    const { date = todayIn(tz()) } = parse(DateQuery, req.query);
+    return health.dailySummary(db, date, tz());
+  }));
+  r.post("/health/samples", wrap((req, res) => {
+    // Direct ingestion (iOS HealthKit or scripts).
+    const body = parse(
+      z.object({
+        samples: z.array(z.object({ type: z.string(), startAt: z.string(), endAt: z.string(), value: z.number(), unit: z.string().default(""), categoryValue: z.string().nullable().optional(), sourceName: z.string().optional() })).default([]),
+        workouts: z.array(z.object({ activityType: z.string(), startAt: z.string(), endAt: z.string(), durationMin: z.number(), energyKcal: z.number().nullable().optional(), distanceKm: z.number().nullable().optional(), sourceName: z.string().default("") })).default([]),
+      }),
+      req.body,
+    );
+    const added = health.insertSamplesBulk(db, body.samples);
+    const addedWorkouts = health.insertWorkoutsBulk(db, body.workouts);
+    res.status(201);
+    return { added, addedWorkouts };
+  }));
+  r.post("/health/import", upload.single("file"), wrap((req, res) => {
+    const file = (req as unknown as { file?: Express.Multer.File }).file;
+    if (!file) throw new HttpError(400, "attach the Apple Health export as form field 'file'");
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (![".zip", ".xml"].includes(ext)) throw new HttpError(400, "expected export.zip or export.xml");
+    res.status(202);
+    return healthImport.startImport(db, file.path, file.originalname);
+  }));
+  r.get("/health/import", wrap(() => healthImport.listJobs(db)));
+  r.get("/health/import/:id", wrap((req) => {
+    const job = healthImport.getJob(db, req.params.id);
+    if (!job) throw new HttpError(404, "import not found");
+    return job;
+  }));
+
+  /* ---------- goals ---------- */
+  r.get("/goals", wrap((req) => {
+    const { date = todayIn(tz()) } = parse(DateQuery, req.query);
+    return goals.allGoalStatuses(db, date, tz(), req.query.archived === "1");
+  }));
+  r.post("/goals", wrap((req, res) => {
+    res.status(201);
+    const g = goals.createGoal(db, parse(GoalInputSchema, req.body));
+    return goals.goalStatus(db, g, todayIn(tz()), tz());
+  }));
+  r.put("/goals/:id", wrap((req) => {
+    const g = goals.updateGoal(db, req.params.id, parse(GoalInputSchema.partial(), req.body));
+    if (!g) throw new HttpError(404, "goal not found");
+    return goals.goalStatus(db, g, todayIn(tz()), tz());
+  }));
+  r.delete("/goals/:id", wrap((req, res) => {
+    if (!goals.deleteGoal(db, req.params.id)) throw new HttpError(404, "goal not found");
+    res.status(204).end();
+  }));
+  r.post("/goals/:id/progress", wrap((req, res) => {
+    const g = goals.getGoal(db, req.params.id);
+    if (!g) throw new HttpError(404, "goal not found");
+    const body = parse(z.object({ date: isoDate.optional(), amount: z.number(), note: z.string().optional() }), req.body);
+    goals.addProgress(db, g.id, body.date ?? todayIn(tz()), body.amount, body.note);
+    res.status(201);
+    return goals.goalStatus(db, g, body.date ?? todayIn(tz()), tz());
+  }));
+  r.get("/goals/:id/progress", wrap((req) => {
+    const { from, to } = parse(RangeQuery, req.query);
+    return goals.listProgress(db, req.params.id, from, to);
+  }));
+
+  /* ---------- achievements ---------- */
+  r.get("/achievements", wrap(() => computeAchievements(db, tz(), todayIn(tz()))));
+
+  /* ---------- export ---------- */
+  r.get("/export", wrap((req, res) => {
+    const q = parse(
+      z.object({ from: isoDate.optional(), to: isoDate.optional(), date: isoDate.optional(), format: z.enum(["json", "md"]).default("json"), download: z.string().optional() }),
+      req.query,
+    );
+    const to = q.to ?? q.date ?? todayIn(tz());
+    const from = q.from ?? q.date ?? to;
+    if (from > to) throw new HttpError(400, "from must be <= to");
+    if (addDays(from, 92) < to) throw new HttpError(400, "range too large (max 92 days)");
+    const bundle = buildBundle(db, from, to);
+    const name = `sentience_${from}${from === to ? "" : `_to_${to}`}`;
+    if (q.format === "md") {
+      res.type("text/markdown; charset=utf-8");
+      if (q.download) res.attachment(`${name}.md`);
+      res.send(bundleToMarkdown(bundle));
+      return;
+    }
+    if (q.download) res.attachment(`${name}.json`);
+    return bundle;
+  }));
+
+  /* ---------- sync (iOS) ---------- */
+  r.post("/sync", wrap((req) => sync(db, parse(SyncPushSchema, req.body))));
+
+  /* ---------- stats for the home screen ---------- */
+  r.get("/stats", wrap(() => {
+    const zone = tz();
+    const today = todayIn(zone);
+    return {
+      today,
+      timezone: zone,
+      events: events.countEvents(db),
+      daysLogged: events.distinctEventDays(db, zone).length,
+      streak: loggingStreak(db, zone, today),
+      health: health.healthCoverage(db),
+      facts: profile.listFacts(db).length,
+      goals: goals.listGoals(db).length,
+    };
+  }));
+
+  return r;
+}
+
+const avg = (xs: number[]) => (xs.length ? Math.round((xs.reduce((a, b) => a + b, 0) / xs.length) * 10) / 10 : null);

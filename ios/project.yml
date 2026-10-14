@@ -1,0 +1,46 @@
+# XcodeGen spec — run `xcodegen generate` in this folder, then open Sentience.xcodeproj.
+# (brew install xcodegen)
+name: Sentience
+options:
+  bundleIdPrefix: app.sentience
+  deploymentTarget:
+    iOS: "17.0"
+  xcodeVersion: "15.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: ""   # set your Apple team ID, or pick it in Xcode → Signing
+targets:
+  Sentience:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sentience
+    info:
+      path: Sentience/Resources/Info.plist
+      properties:
+        CFBundleDisplayName: Sentience
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        NSHealthShareUsageDescription: Sentience reads your heart rate, steps, sleep and workouts so your timeline shows what your body was doing.
+        NSHealthUpdateUsageDescription: Sentience does not write to Health.
+        NSLocalNetworkUsageDescription: Sentience syncs with your home server over Wi-Fi.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+          NSAllowsArbitraryLoads: true   # home servers are plain http; tighten if you put TLS in front
+        UIBackgroundModes: [fetch, processing]
+        BGTaskSchedulerPermittedIdentifiers: [app.sentience.sync]
+    entitlements:
+      path: Sentience/Resources/Sentience.entitlements
+      properties:
+        com.apple.developer.healthkit: true
+        com.apple.developer.healthkit.access: []
+        com.apple.developer.healthkit.background-delivery: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.sentience.ios
+        TARGETED_DEVICE_FAMILY: "1"
+        ENABLE_PREVIEWS: YES

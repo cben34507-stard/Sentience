@@ -1,0 +1,26 @@
+# deps
+node_modules/
+# builds
+dist/
+build/
+*.tsbuildinfo
+# data
+server/data/
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+uploads/
+# env
+.env
+.env.*
+!.env.example
+# os / editor
+.DS_Store
+.vscode/
+.idea/
+# ios
+ios/Sentience.xcodeproj/
+ios/DerivedData/
+ios/*.xcworkspace/
+xcuserdata/

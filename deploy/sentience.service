@@ -1,0 +1,23 @@
+# systemd unit for the mini PC.
+#   sudo cp deploy/sentience.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now sentience
+# Edit User= and WorkingDirectory= to match where you cloned the repo.
+[Unit]
+Description=Sentience life tracker (web UI + API)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sentience
+WorkingDirectory=/opt/sentience
+Environment=NODE_ENV=production
+Environment=PORT=4477
+Environment=HOST=0.0.0.0
+Environment=SENTIENCE_DATA_DIR=/opt/sentience/server/data
+ExecStart=/usr/bin/node server/dist/index.js
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
