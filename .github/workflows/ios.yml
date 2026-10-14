@@ -23,10 +23,16 @@ jobs:
       - name: Build for simulator (compile check)
         working-directory: ios
         run: |
-          set -o pipefail
+          set +e
           xcodebuild -project Sentience.xcodeproj -scheme Sentience \
             -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
-            -configuration Debug CODE_SIGNING_ALLOWED=NO build | tail -n 80
+            -configuration Debug CODE_SIGNING_ALLOWED=NO build > build.log 2>&1
+          status=$?
+          echo "---- compiler errors ----"
+          grep -E "error:" build.log | sed "s#$PWD/##" | sort -u
+          echo "---- end of log ----"
+          tail -n 15 build.log
+          exit $status
       - name: Build unsigned device archive
         working-directory: ios
         run: |
