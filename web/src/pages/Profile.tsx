@@ -2,8 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Fact, FactInput, FactKind, Profile as ProfileT } from "@sentience/shared";
 import { FACT_KINDS, FACT_KIND_META } from "@sentience/shared";
 import { api } from "../lib/api";
-import { parse23andMe, type ParsedSnp } from "../lib/snps";
+import { apoeType, describe, genotypeFromValue, parse23andMe, type ParsedSnp } from "../lib/snps";
 import { Card, Empty, Field, Modal, PageTitle, SectionTitle, Spinner, useToast } from "../components/ui";
+import { Select } from "../components/Select";
+import { Dna, FolderOpen, Plus, RefreshCw, ShieldCheck } from "lucide-react";
 
 export function Profile() {
   const [profile, setProfile] = useState<ProfileT | null>(null);
@@ -11,12 +13,17 @@ export function Profile() {
   const [factForm, setFactForm] = useState<{ open: boolean; editing: Fact | null; kind: FactKind }>({ open: false, editing: null, kind: "condition" });
   const [dna, setDna] = useState<{ open: boolean; found: ParsedSnp[]; total: number; selected: Set<string> } | null>(null);
   const [savingProfile, setSavingProfile] = useState(false);
+  const [sex, setSex] = useState<ProfileT["sex"]>("unspecified");
+  const [timezone, setTimezone] = useState("UTC");
+  const [refreshing, setRefreshing] = useState(false);
   const toast = useToast();
   const dnaRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     const [p, f] = await Promise.all([api.profile.get(), api.facts.list()]);
     setProfile(p);
+    setSex(p.sex);
+    setTimezone(p.timezone);
     setFacts(f);
   }, []);
   useEffect(() => {
@@ -43,10 +50,10 @@ export function Profile() {
         await api.profile.update({
           name: fd.get("name") as string,
           dateOfBirth: (fd.get("dateOfBirth") as string) || null,
-          sex: fd.get("sex") as ProfileT["sex"],
+          sex,
           heightCm: num("heightCm"),
           weightKg: num("weightKg"),
-          timezone: fd.get("timezone") as string,
+          timezone,
           bio: fd.get("bio") as string,
         }),
       );
@@ -67,6 +74,7 @@ export function Profile() {
   const onDnaFile = async (file: File) => {
     const text = await file.text();
     const { found, totalLines } = parse23andMe(text);
+    if (dnaRef.current) dnaRef.current.value = "";
     if (found.length === 0) {
       toast("No recognised markers — is this the 23andMe raw data .txt?", "err");
       return;
@@ -82,10 +90,15 @@ export function Profile() {
       .map((s) => ({
         kind: "genetic",
         key: s.rsid,
-        value: `${s.genotype} — ${s.gene}: ${s.about}`,
+        value: describe(s.rsid, s.genotype),
         source: "23andMe raw data",
         recordedOn: new Date().toISOString().slice(0, 10),
       }));
+    const g = (id: string) => dna.found.find((f) => f.rsid === id)?.genotype ?? null;
+    const apoe = apoeType(g("rs429358"), g("rs7412"));
+    if (apoe && !existing.has("APOE type")) {
+      items.push({ kind: "genetic", key: "APOE type", value: apoe, source: "Derived from rs429358 + rs7412", recordedOn: new Date().toISOString().slice(0, 10) });
+    }
     if (items.length === 0) {
       toast("Those markers are already on record");
       setDna(null);
@@ -95,6 +108,42 @@ export function Profile() {
     toast(`Added ${items.length} genetic markers`);
     setDna(null);
     await load();
+  };
+
+  /** Re-reads stored genotypes and rewrites their descriptions with the current marker table. */
+  const refreshGenetics = async () => {
+    if (!facts) return;
+    setRefreshing(true);
+    try {
+      const genetic = facts.filter((f) => f.kind === "genetic");
+      let updated = 0;
+      const gt = new Map<string, string>();
+      for (const f of genetic) {
+        const g = genotypeFromValue(f.value);
+        if (!g || !/^rs\d+$/.test(f.key)) continue;
+        gt.set(f.key, g);
+        const next = describe(f.key, g);
+        if (next !== f.value) {
+          await api.facts.update(f.id, { value: next });
+          updated++;
+        }
+      }
+      const apoe = apoeType(gt.get("rs429358") ?? null, gt.get("rs7412") ?? null);
+      const existingApoe = genetic.find((f) => f.key === "APOE type");
+      if (apoe && !existingApoe) {
+        await api.facts.create({ kind: "genetic", key: "APOE type", value: apoe, source: "Derived from rs429358 + rs7412", recordedOn: new Date().toISOString().slice(0, 10) });
+        updated++;
+      } else if (apoe && existingApoe && existingApoe.value !== apoe) {
+        await api.facts.update(existingApoe.id, { value: apoe });
+        updated++;
+      }
+      toast(updated ? `Updated ${updated} genetic readings` : "Genetic readings are up to date");
+      await load();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Could not refresh", "err");
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   const tzList = useMemo(() => {
@@ -121,7 +170,7 @@ export function Profile() {
     <div>
       <PageTitle title={profile.name ? `Hi, ${profile.name.split(" ")[0]}` : "Profile"} subtitle="Everything an analyst should know about you before reading a single day." />
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_1.4fr]">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)] 2xl:grid-cols-[minmax(0,0.75fr)_minmax(0,2fr)]">
         <Card className="p-5">
           <SectionTitle aside={age != null && <span className="text-xs text-ink-3">{age} yrs{bmi ? ` · BMI ${bmi.toFixed(1)}` : ""}</span>}>Basics</SectionTitle>
           <form onSubmit={saveProfile} className="space-y-4">
@@ -133,12 +182,16 @@ export function Profile() {
                 <input name="dateOfBirth" type="date" className="field" defaultValue={profile.dateOfBirth ?? ""} />
               </Field>
               <Field label="Sex">
-                <select name="sex" className="field" defaultValue={profile.sex}>
-                  <option value="unspecified">Unspecified</option>
-                  <option value="male">Male</option>
-                  <option value="female">Female</option>
-                  <option value="intersex">Intersex</option>
-                </select>
+                <Select
+                  value={sex}
+                  onChange={setSex}
+                  options={[
+                    { value: "unspecified", label: "Unspecified" },
+                    { value: "male", label: "Male" },
+                    { value: "female", label: "Female" },
+                    { value: "intersex", label: "Intersex" },
+                  ]}
+                />
               </Field>
               <Field label="Height (cm)">
                 <input name="heightCm" type="number" step="0.1" className="field" defaultValue={profile.heightCm ?? ""} />
@@ -148,13 +201,7 @@ export function Profile() {
               </Field>
             </div>
             <Field label="Timezone" hint="Days on the timeline start and end in this zone.">
-              <select name="timezone" className="field" defaultValue={profile.timezone}>
-                {tzList.map((z) => (
-                  <option key={z} value={z}>
-                    {z}
-                  </option>
-                ))}
-              </select>
+              <Select value={timezone} onChange={setTimezone} options={tzList.map((z) => ({ value: z, label: z.replace(/_/g, " "), group: z.includes("/") ? z.split("/")[0] : "Other" }))} searchable />
             </Field>
             <Field label="About you" hint="Context for the analyst: job, routine, what you're trying to change.">
               <textarea name="bio" className="field min-h-[110px]" defaultValue={profile.bio} />
@@ -172,12 +219,17 @@ export function Profile() {
             <SectionTitle
               aside={
                 <div className="flex gap-1">
+                  {grouped.has("genetic") && (
+                    <button className="btn-ghost h-8 px-3 text-xs" onClick={refreshGenetics} disabled={refreshing} title="Re-read stored genotypes with the latest marker table">
+                      <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} /> Refresh readings
+                    </button>
+                  )}
                   <button className="btn-outline h-8 px-3 text-xs" onClick={() => dnaRef.current?.click()}>
-                    🧬 Import 23andMe
+                    <Dna className="h-3.5 w-3.5" /> Import 23andMe
                   </button>
                   <input ref={dnaRef} type="file" accept=".txt,.csv,.tsv" className="hidden" onChange={(e) => e.target.files?.[0] && void onDnaFile(e.target.files[0])} />
                   <button className="btn-primary h-8 px-3 text-xs" onClick={() => setFactForm({ open: true, editing: null, kind: "condition" })}>
-                    + Add
+                    <Plus className="h-3.5 w-3.5" /> Add
                   </button>
                 </div>
               }
@@ -188,18 +240,18 @@ export function Profile() {
               <Spinner />
             ) : facts.length === 0 ? (
               <Empty
-                icon="🗂️"
+                icon={FolderOpen}
                 title="Nothing on record yet"
                 body="Conditions, medications, allergies, lab results, genetic markers from a 23andMe raw file — anything that should colour how your days get read."
               />
             ) : (
-              <div className="space-y-5">
+              <div className="space-y-5 2xl:columns-2 2xl:gap-6 2xl:space-y-0 [&>div]:2xl:mb-5 [&>div]:break-inside-avoid">
                 {FACT_KINDS.filter((k) => grouped.has(k)).map((k) => (
                   <div key={k}>
                     <div className="mb-2 flex items-center justify-between">
                       <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-3">{FACT_KIND_META[k].label}</div>
                       <button className="text-xs text-ink-3 hover:text-ink" onClick={() => setFactForm({ open: true, editing: null, kind: k })}>
-                        + add
+                        <Plus className="inline h-3 w-3" /> add
                       </button>
                     </div>
                     <ul className="divide-y divide-line rounded-xl border border-line">
@@ -241,7 +293,7 @@ export function Profile() {
         {dna && (
           <div>
             <p className="mb-4 text-sm text-ink-2">
-              Scanned {dna.total.toLocaleString()} rows locally in your browser and found <b className="text-ink">{dna.found.length}</b> well-studied markers. Only the ones you tick are saved; the raw file never leaves this computer.
+              Scanned {dna.total.toLocaleString()} rows locally in your browser and found <b className="text-ink">{dna.found.length}</b> well-studied markers. Only the ones you tick are saved to your server; the raw file never leaves this computer.
             </p>
             <div className="max-h-[50vh] overflow-y-auto rounded-xl border border-line">
               <table className="w-full text-sm">
@@ -263,13 +315,16 @@ export function Profile() {
                       <td className="px-2 py-2 font-mono text-xs">{s.rsid}</td>
                       <td className="px-2 py-2 font-mono text-xs font-semibold">{s.genotype}</td>
                       <td className="px-2 py-2 text-xs">
-                        <span className="font-medium">{s.gene}</span> <span className="text-ink-3">— {s.about}</span>
+                        <span className="text-ink-2">{describe(s.rsid, s.genotype).split(" — ")[1]}</span>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+            <p className="mt-3 flex items-start gap-2 text-xs text-ink-3">
+              <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" /> Readings are population associations, not diagnoses. Genotypes are read as 23andMe reports them (forward strand), which is why some gene names look flipped compared with papers.
+            </p>
             <div className="mt-4 flex justify-end gap-2">
               <button className="btn-ghost" onClick={() => setDna(null)}>
                 Cancel

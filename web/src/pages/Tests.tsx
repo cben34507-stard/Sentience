@@ -1,0 +1,596 @@
+import { AnimatePresence, motion } from "framer-motion";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { FlaskConical, HeartPulse, Info, Layers, Pencil, Plus, Trash2, X } from "lucide-react";
+import { LAB_TESTS, LAB_TEST_BY_KEY, labFlag, type LabFlag, type LabResult, type LabResultInput } from "@sentience/shared";
+import { api } from "../lib/api";
+import { fmtNum, toInputDateTime, fromInputDateTime } from "../lib/date";
+import { Card, Empty, Field, Modal, PageTitle, SectionTitle, Spinner, useToast } from "../components/ui";
+import { Select, type SelectOption } from "../components/Select";
+import { useWidth } from "../components/Charts";
+
+const PANELS = [...new Set(LAB_TESTS.map((t) => t.panel))];
+
+const TEST_OPTIONS: SelectOption[] = [
+  ...LAB_TESTS.map((t) => ({
+    value: t.key,
+    label: t.name,
+    hint: `${t.unit}${t.healthKit ? " · shares to Apple Health" : ""}`,
+    group: t.panel,
+    icon: t.healthKit ? <HeartPulse className="h-4 w-4" /> : <FlaskConical className="h-4 w-4" />,
+  })),
+  { value: "custom", label: "Other test…", hint: "Type the name yourself", group: "Custom", icon: <Plus className="h-4 w-4" /> },
+];
+
+interface Series {
+  key: string;
+  name: string;
+  panel: string;
+  unit: string;
+  results: LabResult[];
+  latest: LabResult;
+}
+
+function groupResults(results: LabResult[]): Series[] {
+  const by = new Map<string, LabResult[]>();
+  for (const r of results) {
+    const k = r.testKey === "custom" ? `custom:${r.name.toLowerCase()}` : r.testKey;
+    by.set(k, [...(by.get(k) ?? []), r]);
+  }
+  return [...by.entries()]
+    .map(([key, rs]) => {
+      const sorted = [...rs].sort((a, b) => Date.parse(a.takenAt) - Date.parse(b.takenAt));
+      const latest = sorted[sorted.length - 1];
+      return { key, name: latest.name, panel: latest.panel || LAB_TEST_BY_KEY[latest.testKey]?.panel || "Other", unit: latest.unit, results: sorted, latest };
+    })
+    .sort((a, b) => a.panel.localeCompare(b.panel) || a.name.localeCompare(b.name));
+}
+
+export function Tests() {
+  const [results, setResults] = useState<LabResult[] | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<LabResult | null>(null);
+  const toast = useToast();
+
+  const load = useCallback(async () => setResults(await api.labs.list()), []);
+  useEffect(() => {
+    load().catch((e) => toast(e.message, "err"));
+  }, [load, toast]);
+
+  const series = useMemo(() => groupResults(results ?? []), [results]);
+  const current = series.find((s) => s.key === selected) ?? series[0] ?? null;
+  const flagged = series.filter((s) => ["low", "high"].includes(labFlag(s.latest)));
+
+  const panels = useMemo(() => {
+    const m = new Map<string, Series[]>();
+    for (const s of series) m.set(s.panel, [...(m.get(s.panel) ?? []), s]);
+    return [...m.entries()];
+  }, [series]);
+
+  return (
+    <div>
+      <PageTitle
+        title="Test results"
+        subtitle="Bloods and clinic measurements from the doctor, tracked over time and included in every export."
+        actions={
+          <button className="btn-primary" onClick={() => setAdding(true)}>
+            <Plus className="h-4 w-4" /> Add results
+          </button>
+        }
+      />
+
+      <Card className="mb-6 flex items-start gap-3 p-4 text-sm text-ink-2">
+        <Info className="mt-0.5 h-4 w-4 shrink-0 text-ink-3" />
+        <p>
+          Results marked <HeartPulse className="mx-0.5 inline h-3.5 w-3.5 align-[-2px]" /> are written into Apple Health by the iPhone app on its next sync (glucose, blood pressure, oxygen, temperature, weight, BMI, body fat, waist, lung function).
+          Apple keeps lab panels like cholesterol or vitamin D as read-only records that only hospitals can add, so those stay in Sentience.
+        </p>
+      </Card>
+
+      {results == null ? (
+        <div className="flex justify-center py-16">
+          <Spinner />
+        </div>
+      ) : series.length === 0 ? (
+        <Empty
+          icon={FlaskConical}
+          title="No test results yet"
+          body="Add a blood test or clinic visit. Enter a whole report at once: pick the date, then each result."
+          action={
+            <button className="btn-primary" onClick={() => setAdding(true)}>
+              <Plus className="h-4 w-4" /> Add results
+            </button>
+          }
+        />
+      ) : (
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] 2xl:grid-cols-[minmax(0,0.9fr)_minmax(0,2fr)]">
+          <div className="space-y-5">
+            {flagged.length > 0 && (
+              <Card className="p-4">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-3">Outside range on latest test</div>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {flagged.map((s) => (
+                    <button key={s.key} onClick={() => setSelected(s.key)} className="chip">
+                      <FlagDot flag={labFlag(s.latest)} /> {s.name}
+                    </button>
+                  ))}
+                </div>
+              </Card>
+            )}
+            {panels.map(([panel, list]) => (
+              <div key={panel}>
+                <SectionTitle>{panel}</SectionTitle>
+                <div className="card divide-y divide-line overflow-hidden p-0">
+                  {list.map((s) => {
+                    const flag = labFlag(s.latest);
+                    const active = current?.key === s.key;
+                    return (
+                      <button key={s.key} onClick={() => setSelected(s.key)} className={`flex w-full items-center gap-3 px-4 py-3 text-left transition-colors ${active ? "bg-paper-3" : "hover:bg-paper-2"}`}>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 truncate text-sm font-medium">
+                            {s.name}
+                            {LAB_TEST_BY_KEY[s.latest.testKey]?.healthKit && <HeartPulse className="h-3.5 w-3.5 shrink-0 text-ink-3" aria-label="Shares to Apple Health" />}
+                          </div>
+                          <div className="text-xs text-ink-3">
+                            {s.latest.takenAt.slice(0, 10)} · {s.results.length} result{s.results.length === 1 ? "" : "s"}
+                          </div>
+                        </div>
+                        <Spark results={s.results} />
+                        <div className="w-24 shrink-0 text-right">
+                          <div className="text-sm font-semibold tabular-nums">
+                            {s.latest.value != null ? fmtNum(s.latest.value, 2) : s.latest.valueText}
+                            <span className="ml-1 text-xs font-normal text-ink-3">{s.unit}</span>
+                          </div>
+                          <FlagBadge flag={flag} />
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <AnimatePresence mode="wait">
+            {current && (
+              <motion.div key={current.key} initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -8 }} transition={{ duration: 0.25 }}>
+                <Card className="p-6 lg:sticky lg:top-6">
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div>
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-3">{current.panel}</div>
+                      <h2 className="mt-1 text-2xl font-semibold tracking-tight">{current.name}</h2>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-3xl font-semibold tabular-nums tracking-tight">
+                        {current.latest.value != null ? fmtNum(current.latest.value, 2) : current.latest.valueText}
+                        <span className="ml-1.5 text-sm font-normal text-ink-3">{current.unit}</span>
+                      </div>
+                      <div className="mt-1 flex items-center justify-end gap-2 text-xs text-ink-3">
+                        <FlagBadge flag={labFlag(current.latest)} />
+                        {rangeText(current.latest)}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-6">
+                    <LabTrend results={current.results} />
+                  </div>
+                  <div className="-mx-6 mt-6 overflow-x-auto">
+                    <table className="w-full min-w-[560px] text-sm">
+                      <thead>
+                        <tr className="text-left text-[11px] uppercase tracking-[0.12em] text-ink-3">
+                          <th className="px-6 py-2 font-semibold">Taken</th>
+                          <th className="px-3 py-2 font-semibold">Result</th>
+                          <th className="px-3 py-2 font-semibold">Range</th>
+                          <th className="px-3 py-2 font-semibold">Lab</th>
+                          <th className="px-6 py-2" />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[...current.results].reverse().map((r) => (
+                          <tr key={r.id} className="border-t border-line">
+                            <td className="px-6 py-2.5 tabular-nums">{new Date(r.takenAt).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}</td>
+                            <td className="px-3 py-2.5 tabular-nums">
+                              <span className="font-medium">{r.value != null ? fmtNum(r.value, 2) : r.valueText}</span> <span className="text-ink-3">{r.unit}</span>{" "}
+                              <FlagBadge flag={labFlag(r)} />
+                            </td>
+                            <td className="px-3 py-2.5 text-ink-2">{rangeText(r)}</td>
+                            <td className="px-3 py-2.5 text-ink-2">{r.lab || "—"}</td>
+                            <td className="px-6 py-2.5 text-right">
+                              <button className="btn-ghost h-8 w-8 p-0" onClick={() => setEditing(r)} aria-label="Edit">
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {current.latest.notes && <p className="mt-4 text-sm text-ink-2">{current.latest.notes}</p>}
+                </Card>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      )}
+
+      <AddResults
+        open={adding}
+        onClose={() => setAdding(false)}
+        onSaved={async (msg) => {
+          await load();
+          toast(msg);
+        }}
+      />
+      <EditResult
+        result={editing}
+        onClose={() => setEditing(null)}
+        onSaved={async (msg) => {
+          await load();
+          toast(msg);
+        }}
+      />
+    </div>
+  );
+}
+
+function rangeText(r: Pick<LabResult, "refLow" | "refHigh">): string {
+  if (r.refLow != null && r.refHigh != null) return `${r.refLow}–${r.refHigh}`;
+  if (r.refLow != null) return `≥ ${r.refLow}`;
+  if (r.refHigh != null) return `≤ ${r.refHigh}`;
+  return "no range";
+}
+
+function FlagDot({ flag }: { flag: LabFlag }) {
+  return <span className={`h-2 w-2 rounded-full ${flag === "normal" ? "bg-good" : flag === "unknown" ? "bg-ink-3" : "bg-warn"}`} />;
+}
+function FlagBadge({ flag }: { flag: LabFlag }) {
+  if (flag === "unknown") return null;
+  const cls = flag === "normal" ? "bg-good/12 text-good" : "bg-warn/15 text-warn";
+  return <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${cls}`}>{flag === "normal" ? "in range" : flag}</span>;
+}
+
+/** Tiny trend for the list rows. */
+function Spark({ results }: { results: LabResult[] }) {
+  const vals = results.filter((r) => r.value != null);
+  if (vals.length < 2) return <span className="w-16" />;
+  const ys = vals.map((r) => r.value!);
+  const lo = Math.min(...ys);
+  const hi = Math.max(...ys);
+  const pts = vals.map((r, i) => `${(i / (vals.length - 1)) * 60},${18 - ((r.value! - lo) / (hi - lo || 1)) * 16}`).join(" ");
+  return (
+    <svg width="64" height="20" viewBox="-2 0 64 20" className="shrink-0" aria-hidden>
+      <polyline points={pts} fill="none" stroke="var(--series-1)" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** Value over time, with the reference range as a soft band. */
+function LabTrend({ results }: { results: LabResult[] }) {
+  const [wrap, W] = useWidth<HTMLDivElement>(600);
+  const [hover, setHover] = useState<number | null>(null);
+  const pts = results.filter((r) => r.value != null);
+  const H = 220;
+  const padL = 44;
+  const padR = 16;
+  const padT = 12;
+  const padB = 28;
+  if (pts.length === 0) return <div className="py-8 text-center text-sm text-ink-3">No numeric values to chart</div>;
+  const latest = pts[pts.length - 1];
+  const vals = pts.map((p) => p.value!);
+  const lo0 = Math.min(...vals, latest.refLow ?? Infinity);
+  const hi0 = Math.max(...vals, latest.refHigh ?? -Infinity);
+  const pad = (hi0 - lo0) * 0.15 || Math.abs(hi0) * 0.1 || 1;
+  const lo = lo0 - pad;
+  const hi = hi0 + pad;
+  const t0 = Date.parse(pts[0].takenAt);
+  const t1 = Date.parse(latest.takenAt);
+  const span = t1 - t0 || 86_400_000;
+  const x = (t: string) => (pts.length === 1 ? padL + (W - padL - padR) / 2 : padL + ((Date.parse(t) - t0) / span) * (W - padL - padR));
+  const y = (v: number) => padT + (1 - (v - lo) / (hi - lo)) * (H - padT - padB);
+  const ticks = [lo0, (lo0 + hi0) / 2, hi0].map((v) => Math.round(v * 10) / 10);
+  const bandTop = latest.refHigh != null ? y(latest.refHigh) : padT;
+  const bandBot = latest.refLow != null ? y(latest.refLow) : H - padB;
+  const hasBand = latest.refLow != null || latest.refHigh != null;
+  const path = pts.map((p, i) => `${i ? "L" : "M"}${x(p.takenAt).toFixed(1)} ${y(p.value!).toFixed(1)}`).join(" ");
+  const hp = hover != null ? pts[hover] : null;
+
+  return (
+    <div className="relative w-full min-w-0" ref={wrap}>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: H }} className="block select-none" role="img" aria-label="Result over time">
+        {hasBand && <rect x={padL} y={bandTop} width={W - padL - padR} height={Math.max(0, bandBot - bandTop)} fill="var(--good)" opacity={0.08} rx={4} />}
+        {ticks.map((v) => (
+          <g key={v}>
+            <line x1={padL} x2={W - padR} y1={y(v)} y2={y(v)} stroke="var(--line)" />
+            <text x={padL - 8} y={y(v) + 4} textAnchor="end" fontSize="11" fill="var(--ink-3)" style={{ fontFamily: "inherit" }}>
+              {v}
+            </text>
+          </g>
+        ))}
+        {pts.length > 1 && <path d={path} fill="none" stroke="var(--series-1)" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />}
+        {pts.map((p, i) => {
+          const f = labFlag(p);
+          return (
+            <g key={p.id} onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}>
+              <circle cx={x(p.takenAt)} cy={y(p.value!)} r={14} fill="transparent" />
+              <circle cx={x(p.takenAt)} cy={y(p.value!)} r={hover === i ? 6 : 4.5} fill={f === "low" || f === "high" ? "var(--warn)" : "var(--series-1)"} stroke="var(--paper)" strokeWidth={2} />
+            </g>
+          );
+        })}
+        {[pts[0], latest].filter((p, i, a) => a.indexOf(p) === i).map((p) => (
+          <text key={p.id} x={x(p.takenAt)} y={H - 8} textAnchor={p === latest && pts.length > 1 ? "end" : "start"} fontSize="11" fill="var(--ink-3)" style={{ fontFamily: "inherit" }}>
+            {p.takenAt.slice(0, 10)}
+          </text>
+        ))}
+      </svg>
+      {hp && (
+        <div className="pointer-events-none absolute -translate-x-1/2 -translate-y-full rounded-lg border border-line bg-paper px-2.5 py-1.5 text-xs shadow-soft" style={{ left: `${(x(hp.takenAt) / W) * 100}%`, top: y(hp.value!) - 10 }}>
+          <span className="font-semibold tabular-nums">
+            {hp.value} {hp.unit}
+          </span>
+          <span className="ml-2 text-ink-3">{hp.takenAt.slice(0, 10)}</span>
+        </div>
+      )}
+      {hasBand && <div className="mt-1 text-xs text-ink-3">Shaded band: reference range on your latest report.</div>}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Forms                                                               */
+/* ------------------------------------------------------------------ */
+
+interface Row {
+  id: number;
+  testKey: string;
+  name: string;
+  value: string;
+  unit: string;
+  refLow: string;
+  refHigh: string;
+}
+
+let rowSeq = 1;
+const blankRow = (): Row => ({ id: rowSeq++, testKey: "", name: "", value: "", unit: "", refLow: "", refHigh: "" });
+const fromPreset = (key: string): Row => {
+  const t = LAB_TEST_BY_KEY[key];
+  return { id: rowSeq++, testKey: key, name: t?.name ?? "", value: "", unit: t?.unit ?? "", refLow: t?.refLow?.toString() ?? "", refHigh: t?.refHigh?.toString() ?? "" };
+};
+
+function AddResults({ open, onClose, onSaved }: { open: boolean; onClose: () => void; onSaved: (msg: string) => Promise<void> }) {
+  const [takenAt, setTakenAt] = useState("");
+  const [lab, setLab] = useState("");
+  const [notes, setNotes] = useState("");
+  const [rows, setRows] = useState<Row[]>([blankRow()]);
+  const [panel, setPanel] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const d = new Date();
+    d.setHours(9, 0, 0, 0);
+    setTakenAt(toInputDateTime(d.toISOString()));
+    setLab("");
+    setNotes("");
+    setRows([blankRow()]);
+    setPanel("");
+    setErr(null);
+  }, [open]);
+
+  const update = (id: number, patch: Partial<Row>) => setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  const addPanel = (p: string) => {
+    const keys = LAB_TESTS.filter((t) => t.panel === p).map((t) => t.key);
+    setRows((rs) => [...rs.filter((r) => r.testKey || r.value), ...keys.filter((k) => !rs.some((r) => r.testKey === k)).map(fromPreset)]);
+    setPanel("");
+  };
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErr(null);
+    const filled = rows.filter((r) => r.testKey && r.value.trim());
+    if (filled.length === 0) {
+      setErr("Add at least one result with a value.");
+      return;
+    }
+    const items: LabResultInput[] = filled.map((r) => {
+      const preset = LAB_TEST_BY_KEY[r.testKey];
+      const num = Number(r.value.replace(",", "."));
+      const numeric = r.value.trim() !== "" && Number.isFinite(num);
+      return {
+        testKey: r.testKey,
+        name: r.testKey === "custom" ? r.name.trim() || "Custom test" : preset?.name ?? r.name,
+        panel: preset?.panel ?? "Other",
+        value: numeric ? num : null,
+        valueText: numeric ? null : r.value.trim(),
+        unit: r.unit,
+        refLow: r.refLow === "" ? null : Number(r.refLow),
+        refHigh: r.refHigh === "" ? null : Number(r.refHigh),
+        takenAt: fromInputDateTime(takenAt),
+        lab,
+        notes,
+      };
+    });
+    setBusy(true);
+    try {
+      const res = await api.labs.bulk(items);
+      await onSaved(res.duplicates ? `Saved ${res.created}; ${res.duplicates} were already on record` : `Saved ${res.created} result${res.created === 1 ? "" : "s"}`);
+      onClose();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Could not save");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title="Add test results" wide>
+      <form onSubmit={submit} className="space-y-5">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <Field label="Sample taken">
+            <input className="field" type="datetime-local" value={takenAt} onChange={(e) => setTakenAt(e.target.value)} required />
+          </Field>
+          <Field label="Where">
+            <input className="field" value={lab} onChange={(e) => setLab(e.target.value)} placeholder="GP surgery, hospital, private lab" />
+          </Field>
+          <Field label="Add a whole panel">
+            <Select value={panel} onChange={addPanel} placeholder="Choose a panel" options={PANELS.map((p) => ({ value: p, label: p, icon: <Layers className="h-4 w-4" /> }))} />
+          </Field>
+        </div>
+
+        <div className="space-y-2">
+          <div className="hidden grid-cols-[minmax(0,2.2fr)_minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,0.7fr)_minmax(0,0.7fr)_36px] gap-2 px-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-3 md:grid">
+            <span>Test</span>
+            <span>Result</span>
+            <span>Unit</span>
+            <span>Low</span>
+            <span>High</span>
+            <span />
+          </div>
+          <AnimatePresence initial={false}>
+            {rows.map((r) => (
+              <motion.div
+                key={r.id}
+                layout
+                initial={{ opacity: 0, y: -6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, height: 0 }}
+                className="grid grid-cols-2 gap-2 rounded-xl border border-line p-2 md:grid-cols-[minmax(0,2.2fr)_minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,0.7fr)_minmax(0,0.7fr)_36px] md:border-0 md:p-0"
+              >
+                <div className="col-span-2 space-y-2 md:col-span-1">
+                  <Select
+                    value={r.testKey}
+                    placeholder="Choose test"
+                    searchable
+                    options={TEST_OPTIONS}
+                    onChange={(k) => {
+                      const p = fromPreset(k);
+                      update(r.id, { testKey: k, name: k === "custom" ? "" : p.name, unit: p.unit, refLow: p.refLow, refHigh: p.refHigh });
+                    }}
+                  />
+                  {r.testKey === "custom" && <input className="field" placeholder="Test name" value={r.name} onChange={(e) => update(r.id, { name: e.target.value })} />}
+                </div>
+                <input className="field tabular-nums" inputMode="decimal" placeholder="Value" value={r.value} onChange={(e) => update(r.id, { value: e.target.value })} aria-label="Value" />
+                <input className="field" placeholder="Unit" value={r.unit} onChange={(e) => update(r.id, { unit: e.target.value })} aria-label="Unit" />
+                <input className="field tabular-nums" inputMode="decimal" placeholder="—" value={r.refLow} onChange={(e) => update(r.id, { refLow: e.target.value })} aria-label="Range low" />
+                <input className="field tabular-nums" inputMode="decimal" placeholder="—" value={r.refHigh} onChange={(e) => update(r.id, { refHigh: e.target.value })} aria-label="Range high" />
+                <button type="button" className="btn-ghost h-10 w-9 p-0" onClick={() => setRows((rs) => (rs.length > 1 ? rs.filter((x) => x.id !== r.id) : [blankRow()]))} aria-label="Remove row">
+                  <X className="h-4 w-4" />
+                </button>
+              </motion.div>
+            ))}
+          </AnimatePresence>
+          <button type="button" className="btn-ghost text-sm" onClick={() => setRows((rs) => [...rs, blankRow()])}>
+            <Plus className="h-4 w-4" /> Add another test
+          </button>
+          <p className="px-1 text-xs text-ink-3">Ranges are pre-filled with typical adult values. Labs differ, so swap in the range printed on your report.</p>
+        </div>
+
+        <Field label="Notes">
+          <textarea className="field min-h-[60px]" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Fasting? What the doctor said?" />
+        </Field>
+
+        {err && <div className="rounded-xl bg-bad/10 px-3 py-2 text-sm text-bad">{err}</div>}
+        <div className="flex justify-end gap-2">
+          <button type="button" className="btn-ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn-primary" disabled={busy}>
+            {busy ? "Saving…" : "Save results"}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function EditResult({ result, onClose, onSaved }: { result: LabResult | null; onClose: () => void; onSaved: (msg: string) => Promise<void> }) {
+  const [value, setValue] = useState("");
+  const [unit, setUnit] = useState("");
+  const [refLow, setRefLow] = useState("");
+  const [refHigh, setRefHigh] = useState("");
+  const [takenAt, setTakenAt] = useState("");
+  const [lab, setLab] = useState("");
+  const [notes, setNotes] = useState("");
+
+  useEffect(() => {
+    if (!result) return;
+    setValue(result.value != null ? String(result.value) : result.valueText ?? "");
+    setUnit(result.unit);
+    setRefLow(result.refLow?.toString() ?? "");
+    setRefHigh(result.refHigh?.toString() ?? "");
+    setTakenAt(toInputDateTime(result.takenAt));
+    setLab(result.lab);
+    setNotes(result.notes);
+  }, [result]);
+
+  if (!result) return <Modal open={false} onClose={onClose} title="" children={null} />;
+  const num = Number(value.replace(",", "."));
+  const numeric = value.trim() !== "" && Number.isFinite(num);
+
+  return (
+    <Modal open={!!result} onClose={onClose} title={result.name}>
+      <form
+        className="space-y-4"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          await api.labs.update(result.id, {
+            value: numeric ? num : null,
+            valueText: numeric ? null : value.trim(),
+            unit,
+            refLow: refLow === "" ? null : Number(refLow),
+            refHigh: refHigh === "" ? null : Number(refHigh),
+            takenAt: fromInputDateTime(takenAt),
+            lab,
+            notes,
+          });
+          await onSaved("Result updated");
+          onClose();
+        }}
+      >
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Result">
+            <input className="field" value={value} onChange={(e) => setValue(e.target.value)} />
+          </Field>
+          <Field label="Unit">
+            <input className="field" value={unit} onChange={(e) => setUnit(e.target.value)} />
+          </Field>
+          <Field label="Range low">
+            <input className="field" value={refLow} onChange={(e) => setRefLow(e.target.value)} />
+          </Field>
+          <Field label="Range high">
+            <input className="field" value={refHigh} onChange={(e) => setRefHigh(e.target.value)} />
+          </Field>
+          <Field label="Taken">
+            <input className="field" type="datetime-local" value={takenAt} onChange={(e) => setTakenAt(e.target.value)} />
+          </Field>
+          <Field label="Where">
+            <input className="field" value={lab} onChange={(e) => setLab(e.target.value)} />
+          </Field>
+        </div>
+        <Field label="Notes">
+          <textarea className="field min-h-[60px]" value={notes} onChange={(e) => setNotes(e.target.value)} />
+        </Field>
+        <div className="flex items-center justify-between pt-2">
+          <button
+            type="button"
+            className="btn-ghost text-bad hover:text-bad"
+            onClick={async () => {
+              if (!confirm("Delete this result?")) return;
+              await api.labs.remove(result.id);
+              await onSaved("Result deleted");
+              onClose();
+            }}
+          >
+            <Trash2 className="h-4 w-4" /> Delete
+          </button>
+          <div className="flex gap-2">
+            <button type="button" className="btn-ghost" onClick={onClose}>
+              Cancel
+            </button>
+            <button className="btn-primary">Save</button>
+          </div>
+        </div>
+      </form>
+    </Modal>
+  );
+}

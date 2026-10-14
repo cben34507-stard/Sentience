@@ -7,6 +7,8 @@ import type {
   FactInput,
   GoalInput,
   GoalStatus,
+  LabResult,
+  LabResultInput,
   Profile,
   ProfileInput,
 } from "@sentience/shared";
@@ -43,6 +45,15 @@ export interface DayView {
   heartRate: { t: string; v: number }[];
   stepsByHour: (number | null)[];
   goals: GoalStatus[];
+  labResults: LabResult[];
+}
+
+export interface TimelineDay {
+  date: string;
+  range: { start: string; end: string };
+  events: { id: string; category: Event["category"]; title: string; startAt: string; endAt: string | null; rating: number | null }[];
+  sleep: { startAt: string; endAt: string }[];
+  heartRateByHour: (number | null)[];
 }
 
 export interface OverviewDay {
@@ -70,7 +81,7 @@ export interface Stats {
   events: number;
   daysLogged: number;
   streak: { longest: number; current: number };
-  health: { first: string | null; last: string | null; samples: number; workouts: number };
+  health: { first: string | null; last: string | null; samples: number; workouts: number; sources?: string[] };
   facts: number;
   goals: number;
 }
@@ -78,9 +89,11 @@ export interface Stats {
 export interface ImportJob {
   id: string;
   filename: string;
-  status: "queued" | "running" | "done" | "error";
+  status: "queued" | "hashing" | "running" | "done" | "duplicate" | "error";
   recordsSeen: number;
   recordsAdded: number;
+  recordsSkipped: number;
+  exportDate: string | null;
   workoutsSeen: number;
   error: string | null;
   startedAt: string;
@@ -93,12 +106,22 @@ export interface TypeStat {
   first: string;
   last: string;
   unit: string;
+  sources: number;
 }
 
 export const api = {
   stats: () => get<Stats>("/stats"),
   day: (date: string) => get<DayView>(`/day?date=${date}`),
   overview: (from: string, to: string) => get<Overview>(`/overview?from=${from}&to=${to}`),
+  timeline: (from: string, to: string) => get<{ from: string; to: string; timezone: string; days: TimelineDay[] }>(`/timeline?from=${from}&to=${to}`),
+
+  labs: {
+    list: () => get<LabResult[]>("/labs"),
+    create: (input: LabResultInput) => post<LabResult & { duplicate: boolean }>("/labs", input),
+    bulk: (items: LabResultInput[]) => post<{ created: number; duplicates: number }>("/labs/bulk", items),
+    update: (id: string, input: Partial<LabResultInput>) => put<LabResult>(`/labs/${id}`, input),
+    remove: (id: string) => del(`/labs/${id}`),
+  },
 
   events: {
     create: (input: EventInput) => post<Event>("/events", input),
@@ -132,10 +155,10 @@ export const api = {
     coverage: () => get<Stats["health"]>("/health/coverage"),
     imports: () => get<ImportJob[]>("/health/import"),
     importStatus: (id: string) => get<ImportJob>(`/health/import/${id}`),
-    upload: (file: File) => {
+    upload: (file: File, force = false) => {
       const fd = new FormData();
       fd.append("file", file);
-      return request<ImportJob>("/health/import", { method: "POST", body: fd });
+      return request<ImportJob>(`/health/import${force ? "?force=1" : ""}`, { method: "POST", body: fd });
     },
   },
 

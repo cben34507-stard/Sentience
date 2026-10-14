@@ -2,6 +2,8 @@
 
 A SwiftUI companion that logs your day offline and syncs to the home server when you're back on Wi-Fi. It also reads HealthKit directly, so day-to-day heart rate, steps, sleep and workouts land on the server without re-exporting.
 
+Getting it onto a phone (and why HealthKit needs the paid developer account) is covered in [`docs/INSTALL-IPHONE.md`](../docs/INSTALL-IPHONE.md).
+
 ## Build
 
 Xcode doesn't live in git well, so the project is described by `project.yml` and generated with [XcodeGen](https://github.com/yonaskolb/XcodeGen):
@@ -32,6 +34,8 @@ Every local row (events, goals, manual progress) carries `id`, `updatedAt` and a
 
 Nothing is deleted outright — rows get a `deletedAt` tombstone so deletions propagate in both directions.
 
+Test results with a HealthKit mapping are written to Apple Health after each sync (and right after you add one), tagged with `HKMetadataKeySyncIdentifier`, so editing replaces the sample and deleting removes it. Reads skip anything Sentience wrote, so nothing loops back as duplicate data.
+
 ## Files
 
 | Path | What |
@@ -40,4 +44,5 @@ Nothing is deleted outright — rows get a `deletedAt` tombstone so deletions pr
 | `Sentience/Services/APIClient.swift` | tiny JSON client |
 | `Sentience/Services/HealthKitService.swift` | anchored HealthKit reads → DTOs |
 | `Sentience/Services/SyncService.swift` | push/pull/apply |
-| `Sentience/Views/*` | Splash, Today timeline + quick chips, event editor, goals, sync settings |
+| `Sentience/Models/LabPresets.swift` | generated from `packages/shared` by `scripts/gen-ios-presets.mjs` |
+| `Sentience/Views/*` | Strands splash, Today timeline + quick chips, event editor, Tests (writes to Apple Health), goals, sync settings |

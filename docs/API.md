@@ -26,16 +26,25 @@ Base URL: `http://<server>:4477/api`. JSON in, JSON out. Dates are ISO 8601 with
 |---|---|
 | `GET /day?date=` | everything the timeline page needs: events, health summary, HR series, steps by hour, goal statuses |
 | `GET /overview?from=&to=` | per-day rollup for calendars/review + streak |
+| `GET /timeline?from=&to=` | per-day events, merged sleep spans and hourly HR for the swimlane (max 62 days) |
 
 ## Health
 | | |
 |---|---|
-| `POST /health/import` | multipart field `file` = `export.zip` or `export.xml`; returns `202` + job |
+| `POST /health/import[?force=1]` | multipart field `file` = `export.zip` or `export.xml`; returns `202` + job. A file already imported finishes as `duplicate` unless `force=1` |
 | `GET /health/import` · `GET /health/import/:id` | job list / progress |
 | `POST /health/samples` | direct ingestion `{ samples[], workouts[] }` |
 | `GET /health/samples?type=&date=` or `&from=&to=` | series (downsampled for a single day) |
 | `GET /health/summary?date=` | daily summary |
 | `GET /health/types` · `GET /health/coverage` | what's on record |
+
+## Test results
+| | |
+|---|---|
+| `GET /labs` or `?from=&to=` | all results, oldest first |
+| `POST /labs` | `{ testKey, name, value, unit, takenAt, panel?, valueText?, refLow?, refHigh?, lab?, notes? }`; returns `duplicate: true` if the same result exists |
+| `POST /labs/bulk` | array of the above (one report) → `{ created, duplicates }` |
+| `PUT /labs/:id` · `DELETE /labs/:id` | delete is a tombstone (and removes it from Apple Health on next phone sync) |
 
 ## Goals & achievements
 | | |

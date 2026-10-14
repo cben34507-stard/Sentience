@@ -10,6 +10,7 @@ import { createEvent } from "../src/services/events.js";
 import { insertSamplesBulk, insertWorkoutsBulk, T, type SampleInsert } from "../src/services/health.js";
 import { createGoal } from "../src/services/goals.js";
 import { createFact, updateProfile } from "../src/services/profile.js";
+import { createLab } from "../src/services/labs.js";
 import { addDays } from "@sentience/shared";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -78,7 +79,11 @@ for (let i = 13; i >= 0; i--) {
       samples.push({ type: T.hr, startAt: iso(d, h, m), endAt: iso(d, h, m), value: Math.round(hr), unit: "count/min", sourceName: "Apple Watch" });
     }
     const steps = h < 7 || h >= 23 ? 0 : h === 9 || h === 17 ? rnd(1200, 1800) : rnd(100, 600);
-    if (steps > 0) samples.push({ type: T.steps, startAt: iso(d, h, 0), endAt: iso(d, h, 59), value: Math.round(steps), unit: "count", sourceName: "iPhone" });
+    if (steps > 0) {
+      samples.push({ type: T.steps, startAt: iso(d, h, 0), endAt: iso(d, h, 59), value: Math.round(steps), unit: "count", sourceName: "iPhone" });
+      // The Watch counts the same walking; totals must not double.
+      samples.push({ type: T.steps, startAt: iso(d, h, 2), endAt: iso(d, h, 58), value: Math.round(steps * 0.93), unit: "count", sourceName: "Apple Watch" });
+    }
   }
   samples.push({ type: T.rhr, startAt: iso(d, 6, 0), endAt: iso(d, 6, 0), value: Math.round(rnd(52, 58) + (lateNight ? 4 : 0)), unit: "count/min", sourceName: "Apple Watch" });
   samples.push({ type: T.hrv, startAt: iso(d, 6, 0), endAt: iso(d, 6, 0), value: Math.round(rnd(35, 60) - (lateNight ? 10 : 0)), unit: "ms", sourceName: "Apple Watch" });
@@ -96,5 +101,24 @@ const addedW = insertWorkoutsBulk(db, workouts);
 createGoal(db, { title: "8,000 steps", cadence: "daily", target: 8000, unit: "steps", metric: `health:${T.steps}`, startsOn: addDays(today.toISOString().slice(0, 10), -13) });
 createGoal(db, { title: "3 workouts a week", cadence: "weekly", target: 3, unit: "sessions", metric: "events:workout", startsOn: addDays(today.toISOString().slice(0, 10), -13) });
 createGoal(db, { title: "Read 20 pages", cadence: "daily", target: 20, unit: "pages", metric: "manual", startsOn: addDays(today.toISOString().slice(0, 10), -13) });
+
+const labs: [string, string, string, number, string, number | null, number | null, string][] = [
+  ["vitd", "Vitamin D (25-OH)", "Vitamins & iron", 38, "nmol/L", 50, 125, "-150"],
+  ["vitd", "Vitamin D (25-OH)", "Vitamins & iron", 48, "nmol/L", 50, 125, "-60"],
+  ["vitd", "Vitamin D (25-OH)", "Vitamins & iron", 71, "nmol/L", 50, 125, "-5"],
+  ["hba1c", "HbA1c", "Diabetes", 36, "mmol/mol", null, 41, "-150"],
+  ["hba1c", "HbA1c", "Diabetes", 38, "mmol/mol", null, 41, "-5"],
+  ["chol_total", "Total cholesterol", "Lipids", 5.4, "mmol/L", null, 5.0, "-150"],
+  ["chol_total", "Total cholesterol", "Lipids", 4.9, "mmol/L", null, 5.0, "-5"],
+  ["ldl", "LDL cholesterol", "Lipids", 3.3, "mmol/L", null, 3.0, "-5"],
+  ["hdl", "HDL cholesterol", "Lipids", 1.4, "mmol/L", 1.0, null, "-5"],
+  ["ferritin", "Ferritin", "Vitamins & iron", 96, "µg/L", 30, 400, "-5"],
+  ["bp_sys", "Blood pressure (systolic)", "Clinic measurements", 124, "mmHg", null, 140, "-5"],
+  ["bp_dia", "Blood pressure (diastolic)", "Clinic measurements", 79, "mmHg", null, 90, "-5"],
+];
+const todayStr = today.toISOString().slice(0, 10);
+for (const [testKey, name, panel, value, unit, refLow, refHigh, offset] of labs) {
+  createLab(db, { testKey, name, panel, value, unit, refLow, refHigh, takenAt: iso(addDays(todayStr, Number(offset)), 9, 10), lab: "GP surgery" });
+}
 
 console.log(`seeded ${DB_FILE}: ${added} health samples, ${addedW} workouts, 14 days of events, 3 goals`);

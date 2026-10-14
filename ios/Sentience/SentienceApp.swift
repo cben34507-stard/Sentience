@@ -7,7 +7,7 @@ struct SentienceApp: App {
     @StateObject private var sync = SyncService.shared
 
     let container: ModelContainer = {
-        let schema = Schema([LocalEvent.self, LocalGoal.self, LocalGoalProgress.self])
+        let schema = Schema([LocalEvent.self, LocalGoal.self, LocalGoalProgress.self, LocalLabResult.self])
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
         do {
             return try ModelContainer(for: schema, configurations: [config])

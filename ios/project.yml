@@ -26,7 +26,7 @@ targets:
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         NSHealthShareUsageDescription: Sentience reads your heart rate, steps, sleep and workouts so your timeline shows what your body was doing.
-        NSHealthUpdateUsageDescription: Sentience does not write to Health.
+        NSHealthUpdateUsageDescription: Sentience writes the test results you enter (glucose, blood pressure, oxygen, temperature, weight, body measurements, lung function) into Apple Health.
         NSLocalNetworkUsageDescription: Sentience syncs with your home server over Wi-Fi.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true

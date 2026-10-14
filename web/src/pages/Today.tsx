@@ -2,28 +2,29 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import type { Event, EventCategory, EventInput } from "@sentience/shared";
-import { EVENT_CATEGORY_META } from "@sentience/shared";
+import { EVENT_CATEGORY_META, labFlag, type LabResult } from "@sentience/shared";
+import { Check, ClipboardCopy, Download, Feather, Flame, FlaskConical, Plus, ChevronLeft, ChevronRight, type LucideIcon } from "lucide-react";
+import { CategoryIcon, CATEGORY_GROUP_COLOR, QUICK_ICON } from "../components/icons";
 import { api, type DayView } from "../lib/api";
 import { addDays, durationMin, fmtDateLong, fmtNum, fmtTime, minutesToHm, todayLocal, toLocalIso } from "../lib/date";
 import { Card, Empty, Ring, SectionTitle, Spinner, Stat, useToast } from "../components/ui";
 import { HeartRateChart, StepsChart } from "../components/Charts";
 import { EventForm } from "../components/EventForm";
-import { CATEGORY_TINT } from "../components/categories";
 
-const QUICK: { label: string; category: EventCategory; title: string; icon: string }[] = [
-  { label: "Woke up", category: "wake", title: "Woke up", icon: "☀️" },
-  { label: "Teeth", category: "hygiene", title: "Brushed teeth", icon: "🪥" },
-  { label: "Breakfast", category: "meal", title: "Breakfast", icon: "🍳" },
-  { label: "Vitamins", category: "supplement", title: "Vitamins", icon: "💊" },
-  { label: "Coffee", category: "drink", title: "Coffee", icon: "☕" },
-  { label: "Water", category: "drink", title: "Water", icon: "💧" },
-  { label: "Left house", category: "movement", title: "Left the house", icon: "🚪" },
-  { label: "Back home", category: "movement", title: "Got back home", icon: "🏠" },
-  { label: "Lunch", category: "meal", title: "Lunch", icon: "🥪" },
-  { label: "Dinner", category: "meal", title: "Dinner", icon: "🍝" },
-  { label: "Workout", category: "workout", title: "Workout", icon: "🏋️" },
-  { label: "Mood", category: "mood", title: "Mood check", icon: "🧠" },
-  { label: "Bed", category: "sleep", title: "Went to bed", icon: "🌙" },
+const QUICK: { label: string; category: EventCategory; title: string; icon: LucideIcon }[] = [
+  { label: "Woke up", category: "wake", title: "Woke up", icon: QUICK_ICON.wake },
+  { label: "Teeth", category: "hygiene", title: "Brushed teeth", icon: QUICK_ICON.teeth },
+  { label: "Breakfast", category: "meal", title: "Breakfast", icon: QUICK_ICON.breakfast },
+  { label: "Vitamins", category: "supplement", title: "Vitamins", icon: QUICK_ICON.vitamins },
+  { label: "Coffee", category: "drink", title: "Coffee", icon: QUICK_ICON.coffee },
+  { label: "Water", category: "drink", title: "Water", icon: QUICK_ICON.water },
+  { label: "Left house", category: "movement", title: "Left the house", icon: QUICK_ICON.leave },
+  { label: "Back home", category: "movement", title: "Got back home", icon: QUICK_ICON.home },
+  { label: "Lunch", category: "meal", title: "Lunch", icon: QUICK_ICON.lunch },
+  { label: "Dinner", category: "meal", title: "Dinner", icon: QUICK_ICON.dinner },
+  { label: "Workout", category: "workout", title: "Workout", icon: QUICK_ICON.workout },
+  { label: "Mood", category: "mood", title: "Mood check", icon: QUICK_ICON.mood },
+  { label: "Bed", category: "sleep", title: "Went to bed", icon: QUICK_ICON.bed },
 ];
 
 export function Today() {
@@ -100,14 +101,14 @@ export function Today() {
         </div>
         <div className="flex items-center gap-1">
           <button className="btn-outline h-10 w-10 p-0" onClick={() => setDate(addDays(date, -1))} aria-label="Previous day">
-            ‹
+            <ChevronLeft className="h-4 w-4" />
           </button>
           <input type="date" className="field h-10 w-auto py-0" value={date} max={todayLocal()} onChange={(e) => e.target.value && setDate(e.target.value)} />
           <button className="btn-outline h-10 w-10 p-0" onClick={() => setDate(addDays(date, 1))} disabled={isToday} aria-label="Next day">
-            ›
+            <ChevronRight className="h-4 w-4" />
           </button>
           <button className="btn-primary ml-2 h-10" onClick={() => setForm({ open: true, initial: { startAt: toLocalIso(defaultStart()) } })}>
-            <span className="text-base leading-none">+</span> Log
+            <Plus className="h-4 w-4" /> Log
           </button>
         </div>
       </div>
@@ -116,7 +117,7 @@ export function Today() {
       <div className="-mx-4 mb-6 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:px-0">
         {QUICK.map((q) => (
           <button key={q.label} className="chip shrink-0" onClick={() => quick(q)}>
-            <span aria-hidden>{q.icon}</span> {q.label}
+            <q.icon className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden /> {q.label}
           </button>
         ))}
       </div>
@@ -125,42 +126,46 @@ export function Today() {
 
       {/* Health strip */}
       <Card className="mb-6 p-5">
-        <div className="grid grid-cols-2 gap-5 sm:grid-cols-4 lg:grid-cols-7">
+        <div className="grid grid-cols-2 gap-5 sm:grid-cols-4 lg:grid-cols-8">
           <Stat label="Steps" value={fmtNum(h?.steps)} />
+          <Stat label="Distance" value={fmtNum(h?.distanceKm, 1)} unit="km" />
           <Stat label="Sleep" value={minutesToHm(h?.sleepMin)} />
           <Stat label="Resting HR" value={fmtNum(h?.restingHr)} unit="bpm" />
           <Stat label="HR range" value={h?.hrMin != null ? `${fmtNum(h.hrMin)}–${fmtNum(h.hrMax)}` : "—"} unit="bpm" />
           <Stat label="HRV" value={fmtNum(h?.hrvAvg)} unit="ms" />
           <Stat label="Active" value={fmtNum(h?.activeKcal)} unit="kcal" />
-          <Stat label="Workouts" value={h?.workouts.length ?? 0} hint={h?.workouts.map((w) => w.activityType).join(", ")} />
+          <Stat label="Workouts" value={h?.workouts.length ?? 0} hint={h?.workouts.map((w) => w.activityType.replace(/([a-z])([A-Z])/g, "$1 $2")).join(", ")} />
         </div>
       </Card>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] 2xl:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)_minmax(0,0.75fr)]">
         {/* Timeline */}
-        <div className="order-2 min-w-0 lg:order-1">
+        <div className="order-2 min-w-0 lg:order-1 lg:row-span-2">
           <SectionTitle aside={<span className="text-xs text-ink-3">{day?.events.length ?? 0} events</span>}>Timeline</SectionTitle>
           {loading && !day ? (
             <div className="flex justify-center py-12">
               <Spinner />
             </div>
-          ) : day && day.events.length === 0 ? (
-            <Empty icon="🕊️" title="Nothing logged yet" body="Use the quick chips above or hit Log. Everything you add shows up here against your heart rate." />
+          ) : day && day.events.length === 0 && day.labResults.length === 0 ? (
+            <Empty icon={Feather} title="Nothing logged yet" body="Use the quick chips above or hit Log. Everything you add shows up here against your heart rate." />
           ) : (
-            <Timeline events={day?.events ?? []} onEdit={(e) => setForm({ open: true, initial: e })} />
+            <Timeline events={day?.events ?? []} labs={day?.labResults ?? []} onEdit={(e) => setForm({ open: true, initial: e })} />
           )}
         </div>
 
         {/* Body */}
         <div className="order-1 min-w-0 space-y-6 lg:order-2">
           <Card className="p-5">
-            <SectionTitle aside={<span className="text-xs text-ink-3">ticks = events</span>}>Heart rate</SectionTitle>
-            {day ? <HeartRateChart points={day.heartRate} events={day.events} range={day.range} /> : <div style={{ height: 180 }} />}
-            <div className="mt-3">
+            <SectionTitle aside={<span className="text-xs text-ink-3">ticks on the baseline are your events</span>}>Heart rate</SectionTitle>
+            {day ? <HeartRateChart points={day.heartRate} events={day.events} range={day.range} height={220} /> : <div style={{ height: 220 }} />}
+            <div className="mt-4">
               <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-3">Steps per hour</div>
-              <StepsChart byHour={day?.stepsByHour ?? Array(24).fill(null)} />
+              <StepsChart byHour={day?.stepsByHour ?? Array(24).fill(null)} height={100} />
             </div>
           </Card>
+        </div>
+
+        <div className="order-3 min-w-0 space-y-6">
 
           {day && day.goals.length > 0 && (
             <Card className="p-5">
@@ -169,13 +174,17 @@ export function Today() {
                 {day.goals.map((g) => (
                   <li key={g.goal.id} className="flex items-center gap-3">
                     <Ring percent={g.percent} size={40} stroke={4}>
-                      {g.complete ? "✓" : `${Math.round(g.percent * 100)}`}
+                      {g.complete ? <Check className="h-4 w-4" strokeWidth={2.5} /> : `${Math.round(g.percent * 100)}`}
                     </Ring>
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm font-medium">{g.goal.title}</div>
                       <div className="text-xs text-ink-3">
                         {fmtNum(g.current, 1)} / {fmtNum(g.target, 1)} {g.goal.unit} · {g.goal.cadence}
-                        {g.streak > 0 && ` · 🔥 ${g.streak}`}
+                        {g.streak > 0 && (
+                          <span className="ml-1 inline-flex items-center gap-0.5 align-[-2px]">
+                            · <Flame className="h-3 w-3" /> {g.streak}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </li>
@@ -190,10 +199,10 @@ export function Today() {
             <div className="flex flex-wrap gap-2">
               <CopyMd from={date} to={date} />
               <a className="btn-outline" href={api.exportUrl(date, date, "md")}>
-                Download .md
+                <Download className="h-4 w-4" /> .md
               </a>
               <a className="btn-outline" href={api.exportUrl(date, date, "json")}>
-                Download .json
+                <Download className="h-4 w-4" /> .json
               </a>
             </div>
           </Card>
@@ -225,23 +234,30 @@ export function CopyMd({ from, to }: { from: string; to: string }) {
         }
       }}
     >
-      {busy ? <Spinner className="border-paper/40 border-t-paper" /> : "📋"} Copy for analysis
+      {busy ? <Spinner className="border-paper/40 border-t-paper" /> : <ClipboardCopy className="h-4 w-4" />} Copy for analysis
     </button>
   );
 }
 
-function Timeline({ events, onEdit }: { events: Event[]; onEdit: (e: Event) => void }) {
+type Item = { kind: "event"; e: Event; at: string } | { kind: "lab"; l: LabResult; at: string };
+
+function Timeline({ events, labs, onEdit }: { events: Event[]; labs: LabResult[]; onEdit: (e: Event) => void }) {
   const groups = useMemo(() => {
-    const g: { label: string; items: Event[] }[] = [];
-    for (const e of events) {
+    const items: Item[] = [
+      ...events.map((e) => ({ kind: "event" as const, e, at: e.startAt })),
+      ...labs.map((l) => ({ kind: "lab" as const, l, at: l.takenAt })),
+    ].sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+    const g: { label: string; items: Item[] }[] = [];
+    for (const it of items) {
+      const e = { startAt: it.at };
       const hour = new Date(e.startAt).getHours();
       const label = hour < 5 ? "Night" : hour < 12 ? "Morning" : hour < 17 ? "Afternoon" : hour < 21 ? "Evening" : "Night";
       const last = g[g.length - 1];
-      if (last && last.label === label) last.items.push(e);
-      else g.push({ label, items: [e] });
+      if (last && last.label === label) last.items.push(it);
+      else g.push({ label, items: [it] });
     }
     return g;
-  }, [events]);
+  }, [events, labs]);
 
   return (
     <div className="relative">
@@ -251,19 +267,21 @@ function Timeline({ events, onEdit }: { events: Event[]; onEdit: (e: Event) => v
           <div key={`${g.label}-${gi}`} className="mb-5">
             <div className="mb-2 pl-[80px] text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-3 sm:pl-[88px]">{g.label}</div>
             <ul className="space-y-2">
-              {g.items.map((e) => {
+              {g.items.map((it) => {
+                if (it.kind === "lab") return <LabRow key={`lab-${it.l.id}`} l={it.l} />;
+                const e = it.e;
                 const meta = EVENT_CATEGORY_META[e.category];
                 return (
                   <motion.li key={e.id} layout initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="flex items-stretch gap-3">
                     <div className="w-[52px] shrink-0 pt-3 text-right text-xs font-medium tabular-nums text-ink-3 sm:w-[60px]">{fmtTime(e.startAt)}</div>
                     <div className="relative flex w-5 shrink-0 justify-center pt-3.5">
-                      <span className="h-2.5 w-2.5 rounded-full ring-4 ring-paper" style={{ background: CATEGORY_TINT[e.category] }} />
+                      <span className="h-2.5 w-2.5 rounded-full ring-4 ring-paper" style={{ background: CATEGORY_GROUP_COLOR[e.category] }} />
                     </div>
                     <button onClick={() => onEdit(e)} className="card flex-1 px-4 py-3 text-left transition hover:border-line-2 hover:shadow-pop">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
-                            <span aria-hidden>{meta.icon}</span>
+                            <CategoryIcon category={e.category} className="h-4 w-4 shrink-0 text-ink-2" />
                             <span className="truncate font-medium">{e.title}</span>
                             {e.rating != null && <span className="rounded-full bg-paper-3 px-2 py-0.5 text-[11px] font-semibold tabular-nums">{e.rating}/10</span>}
                           </div>
@@ -302,5 +320,28 @@ function Timeline({ events, onEdit }: { events: Event[]; onEdit: (e: Event) => v
         ))}
       </AnimatePresence>
     </div>
+  );
+}
+
+function LabRow({ l }: { l: LabResult }) {
+  const flag = labFlag(l);
+  return (
+    <motion.li layout initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flex items-stretch gap-3">
+      <div className="w-[52px] shrink-0 pt-3 text-right text-xs font-medium tabular-nums text-ink-3 sm:w-[60px]">{fmtTime(l.takenAt)}</div>
+      <div className="relative flex w-5 shrink-0 justify-center pt-3.5">
+        <span className="h-2.5 w-2.5 rounded-full bg-ink ring-4 ring-paper" />
+      </div>
+      <a href="/tests" className="card flex-1 px-4 py-3 transition hover:border-line-2 hover:shadow-pop">
+        <div className="flex items-center gap-2">
+          <FlaskConical className="h-4 w-4 shrink-0 text-ink-2" strokeWidth={1.8} />
+          <span className="truncate font-medium">{l.name}</span>
+          <span className="tabular-nums">{l.value ?? l.valueText} <span className="text-xs text-ink-3">{l.unit}</span></span>
+          {flag === "low" || flag === "high" ? (
+            <span className="rounded-full bg-warn/15 px-2 py-0.5 text-[11px] font-semibold uppercase text-warn">{flag}</span>
+          ) : null}
+        </div>
+        <div className="mt-0.5 text-xs text-ink-3">Test result{l.lab ? ` · ${l.lab}` : ""}</div>
+      </a>
+    </motion.li>
   );
 }

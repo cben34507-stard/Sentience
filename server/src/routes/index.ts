@@ -5,6 +5,7 @@ import {
   EventInputSchema,
   FactInputSchema,
   GoalInputSchema,
+  LabResultInputSchema,
   ProfileInputSchema,
   SyncPushSchema,
   isoDate,
@@ -22,6 +23,7 @@ import * as goals from "../services/goals.js";
 import { computeAchievements, loggingStreak } from "../services/achievements.js";
 import { buildBundle, bundleToMarkdown } from "../services/exportBundle.js";
 import { sync } from "../services/sync.js";
+import * as labs from "../services/labs.js";
 
 const DateQuery = z.object({ date: isoDate.optional() });
 const RangeQuery = z.object({ from: isoDate, to: isoDate });
@@ -100,7 +102,27 @@ export function buildRouter(db: DB, uploadDir: string): Router {
       heartRate: health.seriesForDay(db, health.T.hr, date, zone),
       stepsByHour: health.hourlySeries(db, health.T.steps, date, zone, "sum"),
       goals: goals.allGoalStatuses(db, date, zone),
+      labResults: labs.listLabs(db, dayRange(date, zone).start, dayRange(date, zone).end),
     };
+  }));
+
+  /** Multi-day swimlane data: events, merged sleep spans and hourly HR per day. */
+  r.get("/timeline", wrap((req) => {
+    const { from, to } = parse(RangeQuery, req.query);
+    if (addDays(from, 62) < to) throw new HttpError(400, "range too large (max 62 days)");
+    const zone = tz();
+    const days = [];
+    for (let d = from; d <= to; d = addDays(d, 1)) {
+      const range = dayRange(d, zone);
+      days.push({
+        date: d,
+        range,
+        events: events.listEventsForDay(db, d, zone).map((e) => ({ id: e.id, category: e.category, title: e.title, startAt: e.startAt, endAt: e.endAt, rating: e.rating })),
+        sleep: health.sleepIntervalsForNight(db, d, zone).map(([s, e]) => ({ startAt: new Date(s * 1000).toISOString(), endAt: new Date(e * 1000).toISOString() })),
+        heartRateByHour: health.hourlySeries(db, health.T.hr, d, zone, "avg"),
+      });
+    }
+    return { from, to, timezone: zone, days };
   }));
 
   /** Lightweight per-day overview for calendar/week strips. */
@@ -156,12 +178,13 @@ export function buildRouter(db: DB, uploadDir: string): Router {
     return { added, addedWorkouts };
   }));
   r.post("/health/import", upload.single("file"), wrap((req, res) => {
+    const force = req.query.force === "1";
     const file = (req as unknown as { file?: Express.Multer.File }).file;
     if (!file) throw new HttpError(400, "attach the Apple Health export as form field 'file'");
     const ext = path.extname(file.originalname).toLowerCase();
     if (![".zip", ".xml"].includes(ext)) throw new HttpError(400, "expected export.zip or export.xml");
     res.status(202);
-    return healthImport.startImport(db, file.path, file.originalname);
+    return healthImport.startImport(db, file.path, file.originalname, force);
   }));
   r.get("/health/import", wrap(() => healthImport.listJobs(db)));
   r.get("/health/import/:id", wrap((req) => {
@@ -200,6 +223,36 @@ export function buildRouter(db: DB, uploadDir: string): Router {
   r.get("/goals/:id/progress", wrap((req) => {
     const { from, to } = parse(RangeQuery, req.query);
     return goals.listProgress(db, req.params.id, from, to);
+  }));
+
+  /* ---------- test results ---------- */
+  r.get("/labs", wrap((req) => {
+    const q = req.query as Record<string, string>;
+    if (q.from && q.to) {
+      const { from, to } = parse(RangeQuery, q);
+      return labs.listLabs(db, dayRange(from, tz()).start, dayRange(to, tz()).end);
+    }
+    return labs.listLabs(db);
+  }));
+  r.post("/labs", wrap((req, res) => {
+    const out = labs.createLab(db, parse(LabResultInputSchema, req.body));
+    res.status(out.duplicate ? 200 : 201);
+    return { ...out.result, duplicate: out.duplicate };
+  }));
+  r.post("/labs/bulk", wrap((req, res) => {
+    const items = parse(z.array(LabResultInputSchema).min(1).max(200), req.body);
+    const results = db.transaction(() => items.map((i) => labs.createLab(db, i)))();
+    res.status(201);
+    return { created: results.filter((r) => !r.duplicate).length, duplicates: results.filter((r) => r.duplicate).length };
+  }));
+  r.put("/labs/:id", wrap((req) => {
+    const l = labs.updateLab(db, req.params.id, parse(LabResultInputSchema.partial(), req.body));
+    if (!l) throw new HttpError(404, "result not found");
+    return l;
+  }));
+  r.delete("/labs/:id", wrap((req, res) => {
+    if (!labs.deleteLab(db, req.params.id)) throw new HttpError(404, "result not found");
+    res.status(204).end();
   }));
 
   /* ---------- achievements ---------- */

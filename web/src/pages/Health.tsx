@@ -3,6 +3,7 @@ import { HEALTH_TYPE_META } from "@sentience/shared";
 import { api, type ImportJob, type Stats, type TypeStat } from "../lib/api";
 import { fmtNum } from "../lib/date";
 import { Card, Empty, PageTitle, SectionTitle, Spinner, Stat, useToast } from "../components/ui";
+import { Copy, Inbox, ShieldCheck, Smartphone, Upload } from "lucide-react";
 
 export function Health() {
   const [coverage, setCoverage] = useState<Stats["health"] | null>(null);
@@ -25,22 +26,24 @@ export function Health() {
   }, [load, toast]);
 
   // Poll while an import is running.
-  const active = jobs.find((j) => j.status === "queued" || j.status === "running");
+  const active = jobs.find((j) => j.status === "queued" || j.status === "running" || j.status === "hashing");
   useEffect(() => {
     if (!active) return;
     const t = setInterval(() => load().catch(() => undefined), 1500);
     return () => clearInterval(t);
   }, [active, load]);
 
-  const upload = async (file: File) => {
+  const [lastFile, setLastFile] = useState<File | null>(null);
+  const upload = async (file: File, force = false) => {
     if (!/\.(zip|xml)$/i.test(file.name)) {
       toast("Pick export.zip (or export.xml)", "err");
       return;
     }
     setUploading(true);
     try {
-      await api.health.upload(file);
-      toast("Upload done — importing in the background");
+      setLastFile(file);
+      await api.health.upload(file, force);
+      toast("Uploaded. Importing in the background");
       await load();
     } catch (e) {
       toast(e instanceof Error ? e.message : "Upload failed", "err");
@@ -56,15 +59,16 @@ export function Health() {
       <PageTitle title="Health" subtitle="Bring your Apple Health history in so every day on the timeline carries your heart rate, steps, sleep and workouts." />
 
       <Card className="mb-6 p-5">
-        <div className="grid grid-cols-2 gap-5 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-5 sm:grid-cols-5">
           <Stat label="Samples" value={fmtNum(coverage?.samples)} />
           <Stat label="Workouts" value={fmtNum(coverage?.workouts)} />
           <Stat label="From" value={coverage?.first ? coverage.first.slice(0, 10) : "—"} />
           <Stat label="To" value={coverage?.last ? coverage.last.slice(0, 10) : "—"} />
+          <Stat label="Sources" value={coverage?.sources?.length ?? 0} hint={coverage?.sources?.slice(0, 3).join(", ")} />
         </div>
       </Card>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 2xl:grid-cols-3">
         <div className="space-y-6">
           <Card className="p-5">
             <SectionTitle>Import an Apple Health export</SectionTitle>
@@ -82,7 +86,9 @@ export function Health() {
                 if (f) void upload(f);
               }}
             >
-              <div className="text-3xl">🩺</div>
+              <div className="grid h-12 w-12 place-items-center rounded-2xl bg-paper-3 text-ink-2">
+                <Upload className="h-5 w-5" strokeWidth={1.8} />
+              </div>
               <div className="mt-2 font-medium">Drop export.zip here</div>
               <div className="mt-1 text-sm text-ink-3">Multi-gigabyte files are fine — it streams.</div>
               <button className="btn-primary mt-4" disabled={uploading} onClick={() => fileRef.current?.click()}>
@@ -99,13 +105,23 @@ export function Health() {
                 <b className="text-ink">2.</b> AirDrop or save the <code className="rounded bg-paper-3 px-1">export.zip</code> to this computer.
               </li>
               <li>
-                <b className="text-ink">3.</b> Drop it above. Re-importing later only adds new samples; nothing is duplicated.
+                <b className="text-ink">3.</b> Drop it above. A newer export later only adds what's new.
               </li>
             </ol>
           </Card>
 
           <Card className="p-5">
-            <SectionTitle>Imports</SectionTitle>
+            <SectionTitle
+              aside={
+                jobs[0]?.status === "duplicate" && lastFile ? (
+                  <button className="text-xs text-ink-3 underline-offset-2 hover:text-ink hover:underline" onClick={() => void upload(lastFile, true)}>
+                    Import it anyway
+                  </button>
+                ) : null
+              }
+            >
+              Imports
+            </SectionTitle>
             {jobs.length === 0 ? (
               <div className="text-sm text-ink-3">No imports yet.</div>
             ) : (
@@ -115,8 +131,10 @@ export function Health() {
                     <div className="min-w-0">
                       <div className="truncate font-medium">{j.filename}</div>
                       <div className="text-xs text-ink-3">
-                        {new Date(j.startedAt).toLocaleString()} · {fmtNum(j.recordsSeen)} seen · {fmtNum(j.recordsAdded)} new · {j.workoutsSeen} workouts
-                        {j.error && <span className="text-bad"> · {j.error}</span>}
+                        {new Date(j.startedAt).toLocaleString()}
+                        {j.exportDate && ` · export from ${j.exportDate.slice(0, 10)}`}
+                        {j.status !== "duplicate" && ` · ${fmtNum(j.recordsSeen)} read · ${fmtNum(j.recordsAdded)} new · ${fmtNum(j.recordsSkipped)} already on record · ${j.workoutsSeen} workouts`}
+                        {j.error && <span className={j.status === "duplicate" ? "text-ink-2" : "text-bad"}> · {j.error}</span>}
                       </div>
                     </div>
                     <span
@@ -124,8 +142,8 @@ export function Health() {
                         j.status === "done" ? "bg-good/15 text-good" : j.status === "error" ? "bg-bad/15 text-bad" : "bg-paper-3 text-ink-2"
                       }`}
                     >
-                      {j.status === "running" && <Spinner className="mr-1 h-3 w-3 align-[-2px]" />}
-                      {j.status}
+                      {(j.status === "running" || j.status === "hashing") && <Spinner className="mr-1 h-3 w-3 align-[-2px]" />}
+                      {j.status === "duplicate" ? "already imported" : j.status === "hashing" ? "checking" : j.status}
                     </span>
                   </li>
                 ))}
@@ -136,7 +154,22 @@ export function Health() {
 
         <div className="space-y-6">
           <Card className="p-5">
+            <SectionTitle>No duplicates</SectionTitle>
+            <div className="flex gap-3">
+              <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-good" strokeWidth={1.8} />
+              <ul className="space-y-2 text-sm text-ink-2">
+                <li>The same file uploaded twice is recognised by its fingerprint and skipped.</li>
+                <li>Every reading is keyed by type, exact start and end time, and device, so an export and iPhone sync that overlap store each reading once.</li>
+                <li>iPhone and Watch both count steps; daily totals take the busier device each hour instead of adding them, like the Health app does.</li>
+                <li>Overlapping sleep from several apps is merged into one night.</li>
+                <li>Test results Sentience writes into Apple Health are never read back in as new data.</li>
+              </ul>
+            </div>
+          </Card>
+
+          <Card className="p-5">
             <SectionTitle>iPhone app sync</SectionTitle>
+            <Smartphone className="mb-2 h-5 w-5 text-ink-2" strokeWidth={1.8} />
             <p className="text-sm text-ink-2">
               The Sentience iOS app logs events offline and pushes HealthKit samples directly, so you don't have to re-export. Point it at this server when you're on the same Wi-Fi:
             </p>
@@ -148,7 +181,7 @@ export function Health() {
                   void navigator.clipboard.writeText(serverUrl).then(() => toast("Copied"));
                 }}
               >
-                Copy
+                <Copy className="h-4 w-4" /> Copy
               </button>
             </div>
             <p className="mt-2 text-xs text-ink-3">If this says localhost, the server also prints its LAN address on startup — use that one on the phone.</p>
@@ -157,7 +190,7 @@ export function Health() {
           <Card className="p-5">
             <SectionTitle aside={<span className="text-xs text-ink-3">{types.length} types</span>}>What's on record</SectionTitle>
             {types.length === 0 ? (
-              <Empty icon="📭" title="No health data yet" body="Import an export or sync from the iOS app." />
+              <Empty icon={Inbox} title="No health data yet" body="Import an export or sync from the iOS app." />
             ) : (
               <ul className="max-h-[520px] divide-y divide-line overflow-y-auto">
                 {types.map((t) => {
@@ -167,7 +200,7 @@ export function Health() {
                       <div className="min-w-0">
                         <div className="truncate font-medium">{meta?.label ?? t.type.replace(/^HK(Quantity|Category)TypeIdentifier/, "")}</div>
                         <div className="text-xs text-ink-3">
-                          {t.first.slice(0, 10)} → {t.last.slice(0, 10)} · {t.unit}
+                          {t.first.slice(0, 10)} to {t.last.slice(0, 10)} · {t.unit} · {t.sources} source{t.sources === 1 ? "" : "s"}
                         </div>
                       </div>
                       <span className="shrink-0 tabular-nums text-ink-2">{fmtNum(t.count)}</span>

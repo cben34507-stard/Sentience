@@ -1,21 +1,26 @@
-import { NavLink, Outlet } from "react-router-dom";
-import { motion } from "framer-motion";
+import { NavLink, useLocation, useOutlet } from "react-router-dom";
+import { AnimatePresence, motion } from "framer-motion";
+import { ChartLine, CircleUser, Clock, FlaskConical, HeartPulse, Monitor, Moon, Sun, Target, type LucideIcon } from "lucide-react";
 import { useTheme, type ThemePref } from "../lib/theme";
 import { Toaster } from "./Toaster";
 
-const NAV = [
-  { to: "/", label: "Today", icon: TodayIcon },
-  { to: "/review", label: "Review", icon: ReviewIcon },
-  { to: "/goals", label: "Goals", icon: GoalIcon },
-  { to: "/health", label: "Health", icon: HeartIcon },
-  { to: "/profile", label: "Profile", icon: PersonIcon },
+const NAV: { to: string; label: string; icon: LucideIcon }[] = [
+  { to: "/", label: "Today", icon: Clock },
+  { to: "/review", label: "Review", icon: ChartLine },
+  { to: "/tests", label: "Tests", icon: FlaskConical },
+  { to: "/goals", label: "Goals", icon: Target },
+  { to: "/health", label: "Health", icon: HeartPulse },
+  { to: "/profile", label: "Profile", icon: CircleUser },
 ];
 
 export function Shell({ onReplaySplash }: { onReplaySplash: () => void }) {
+  const location = useLocation();
+  const outlet = useOutlet();
+
   return (
-    <div className="min-h-full bg-paper">
+    <div className="relative z-10 min-h-full">
       {/* Desktop sidebar */}
-      <aside className="fixed inset-y-0 left-0 hidden w-60 flex-col border-r border-line bg-paper px-4 py-6 md:flex">
+      <aside className="fixed inset-y-0 left-0 z-20 hidden w-60 flex-col border-r border-line bg-paper/75 px-4 py-6 backdrop-blur-xl md:flex">
         <button onClick={onReplaySplash} className="group flex items-center gap-2 px-2 text-left" title="Replay intro">
           <Logo />
           <span className="text-lg font-semibold tracking-[-0.03em]">Sentience</span>
@@ -27,15 +32,15 @@ export function Shell({ onReplaySplash }: { onReplaySplash: () => void }) {
               to={n.to}
               end={n.to === "/"}
               className={({ isActive }) =>
-                `relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${
+                `relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors duration-200 ${
                   isActive ? "text-ink" : "text-ink-3 hover:bg-paper-2 hover:text-ink"
                 }`
               }
             >
               {({ isActive }) => (
                 <>
-                  {isActive && <motion.span layoutId="nav-pill" className="absolute inset-0 -z-10 rounded-xl bg-paper-3" transition={{ type: "spring", stiffness: 500, damping: 40 }} />}
-                  <n.icon className="h-[18px] w-[18px]" />
+                  {isActive && <motion.span layoutId="nav-pill" className="absolute inset-0 -z-10 rounded-xl bg-paper-3" transition={{ type: "spring", stiffness: 380, damping: 34 }} />}
+                  <n.icon className="h-[18px] w-[18px]" strokeWidth={1.8} />
                   {n.label}
                 </>
               )}
@@ -48,7 +53,7 @@ export function Shell({ onReplaySplash }: { onReplaySplash: () => void }) {
       </aside>
 
       {/* Mobile header */}
-      <header className="sticky top-0 z-30 flex items-center justify-between border-b border-line bg-paper/80 px-4 py-3 backdrop-blur md:hidden">
+      <header className="sticky top-0 z-30 flex items-center justify-between border-b border-line bg-paper/70 px-4 py-3 backdrop-blur-xl md:hidden">
         <button onClick={onReplaySplash} className="flex items-center gap-2">
           <Logo />
           <span className="font-semibold tracking-tight">Sentience</span>
@@ -56,15 +61,24 @@ export function Shell({ onReplaySplash }: { onReplaySplash: () => void }) {
         <ThemeSwitch compact />
       </header>
 
-      <main className="mx-auto w-full max-w-6xl px-4 pb-28 pt-6 md:pb-12 md:pl-[17rem] md:pr-8 md:pt-10">
-        <Outlet />
+      <main className="w-full px-4 pb-28 pt-6 sm:px-6 md:pb-12 md:pl-[17rem] md:pr-8 md:pt-10 xl:pr-10 2xl:pl-[18rem] 2xl:pr-14">
+        <AnimatePresence mode="wait" initial={false} onExitComplete={() => window.scrollTo({ top: 0 })}>
+          <motion.div
+            key={location.pathname}
+            initial={{ opacity: 0, y: 14, filter: "blur(6px)" }}
+            animate={{ opacity: 1, y: 0, filter: "blur(0px)", transition: { duration: 0.42, ease: [0.22, 1, 0.36, 1] } }}
+            exit={{ opacity: 0, y: -10, filter: "blur(4px)", transition: { duration: 0.24, ease: [0.4, 0, 1, 1] } }}
+          >
+            {outlet}
+          </motion.div>
+        </AnimatePresence>
       </main>
 
       {/* Mobile tab bar */}
-      <nav className="fixed inset-x-0 bottom-0 z-30 flex justify-around border-t border-line bg-paper/90 px-2 pb-[max(env(safe-area-inset-bottom),8px)] pt-2 backdrop-blur md:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-30 flex justify-around border-t border-line bg-paper/85 px-1 pb-[max(env(safe-area-inset-bottom),8px)] pt-2 backdrop-blur-xl md:hidden">
         {NAV.map((n) => (
-          <NavLink key={n.to} to={n.to} end={n.to === "/"} className={({ isActive }) => `flex flex-col items-center gap-1 rounded-xl px-3 py-1.5 text-[11px] font-medium ${isActive ? "text-ink" : "text-ink-3"}`}>
-            <n.icon className="h-5 w-5" />
+          <NavLink key={n.to} to={n.to} end={n.to === "/"} className={({ isActive }) => `flex flex-col items-center gap-1 rounded-xl px-2 py-1.5 text-[10px] font-medium transition-colors ${isActive ? "text-ink" : "text-ink-3"}`}>
+            <n.icon className="h-5 w-5" strokeWidth={1.8} />
             {n.label}
           </NavLink>
         ))}
@@ -76,10 +90,10 @@ export function Shell({ onReplaySplash }: { onReplaySplash: () => void }) {
 
 function ThemeSwitch({ compact }: { compact?: boolean }) {
   const { pref, setPref } = useTheme();
-  const opts: { v: ThemePref; label: string; icon: string }[] = [
-    { v: "light", label: "Light", icon: "☀️" },
-    { v: "system", label: "Auto", icon: "◐" },
-    { v: "dark", label: "Dark", icon: "☾" },
+  const opts: { v: ThemePref; label: string; icon: LucideIcon }[] = [
+    { v: "light", label: "Light", icon: Sun },
+    { v: "system", label: "Auto", icon: Monitor },
+    { v: "dark", label: "Dark", icon: Moon },
   ];
   return (
     <div className={`inline-flex rounded-full border border-line bg-paper-2 p-1 ${compact ? "" : "w-full"}`} role="radiogroup" aria-label="Theme">
@@ -88,11 +102,12 @@ function ThemeSwitch({ compact }: { compact?: boolean }) {
           key={o.v}
           role="radio"
           aria-checked={pref === o.v}
+          aria-label={o.label}
           onClick={() => setPref(o.v)}
-          className={`relative flex flex-1 items-center justify-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition ${pref === o.v ? "text-ink" : "text-ink-3 hover:text-ink"}`}
+          className={`relative flex flex-1 items-center justify-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${pref === o.v ? "text-ink" : "text-ink-3 hover:text-ink"}`}
         >
           {pref === o.v && <motion.span layoutId={compact ? "theme-pill-m" : "theme-pill"} className="absolute inset-0 rounded-full bg-paper shadow-soft" transition={{ type: "spring", stiffness: 500, damping: 40 }} />}
-          <span className="relative">{o.icon}</span>
+          <o.icon className="relative h-3.5 w-3.5" strokeWidth={2} />
           {!compact && <span className="relative">{o.label}</span>}
         </button>
       ))}
@@ -104,49 +119,8 @@ export function Logo({ className = "h-7 w-7" }: { className?: string }) {
   return (
     <svg viewBox="0 0 64 64" className={className} aria-hidden>
       <rect width="64" height="64" rx="16" className="fill-ink" />
-      <path d="M14 36c6 0 6-12 12-12s6 24 12 24 6-16 12-16" fill="none" className="stroke-paper" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-type IconProps = { className?: string };
-function TodayIcon({ className }: IconProps) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={className}>
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 7v5l3 2" />
-    </svg>
-  );
-}
-function ReviewIcon({ className }: IconProps) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={className}>
-      <path d="M4 19V5M4 19h16" />
-      <path d="M8 15l3-4 3 2 4-6" />
-    </svg>
-  );
-}
-function GoalIcon({ className }: IconProps) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={className}>
-      <circle cx="12" cy="12" r="9" />
-      <circle cx="12" cy="12" r="5" />
-      <circle cx="12" cy="12" r="1" />
-    </svg>
-  );
-}
-function HeartIcon({ className }: IconProps) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={className}>
-      <path d="M3 12h4l2-5 3 10 2-6 2 3h5" />
-    </svg>
-  );
-}
-function PersonIcon({ className }: IconProps) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={className}>
-      <circle cx="12" cy="8" r="4" />
-      <path d="M4 21c0-4 3.6-7 8-7s8 3 8 7" />
+      <path d="M10 32c7-10 13-10 22 0s15 10 22 0" fill="none" className="stroke-paper" strokeWidth="3.5" strokeLinecap="round" />
+      <path d="M10 32c7 10 13 10 22 0s15-10 22 0" fill="none" className="stroke-paper" strokeWidth="3.5" strokeLinecap="round" opacity="0.55" />
     </svg>
   );
 }

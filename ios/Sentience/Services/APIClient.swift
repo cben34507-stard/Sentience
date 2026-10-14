@@ -74,6 +74,7 @@ enum AppSettings {
     static let lastSyncKey = "sentience.lastSync"
     static let healthAnchorKey = "sentience.healthAnchor."
     static let healthEnabledKey = "sentience.healthEnabled"
+    static let writeLabsKey = "sentience.writeLabsToHealth"
 
     static var deviceId: String {
         if let id = UserDefaults.standard.string(forKey: deviceIdKey) { return id }

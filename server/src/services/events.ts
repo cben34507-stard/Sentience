@@ -1,5 +1,5 @@
 import type { DB } from "../lib/db.js";
-import { nextRev } from "../lib/db.js";
+import { nextRev, toEpochS } from "../lib/db.js";
 import { newId } from "../lib/ids.js";
 import { dayRange } from "../lib/time.js";
 import type { Event, EventInput } from "@sentience/shared";
@@ -47,9 +47,9 @@ function safeJson<T>(s: string, fallback: T): T {
 export function listEvents(db: DB, from: string, to: string): Event[] {
   const rows = db
     .prepare(
-      `SELECT * FROM events WHERE deleted_at IS NULL AND start_at >= ? AND start_at < ? ORDER BY start_at ASC`,
+      `SELECT * FROM events WHERE deleted_at IS NULL AND start_s >= ? AND start_s < ? ORDER BY start_s ASC`,
     )
-    .all(from, to) as EventRow[];
+    .all(toEpochS(from), toEpochS(to)) as EventRow[];
   return rows.map(rowToEvent);
 }
 
@@ -104,11 +104,11 @@ export function deleteEvent(db: DB, id: string): boolean {
 /** Last-write-wins upsert shared by the REST API and the sync endpoint. */
 export function upsertEvent(db: DB, e: Event): void {
   db.prepare(
-    `INSERT INTO events (id, category, title, notes, start_at, end_at, tags, rating, data, source, created_at, updated_at, deleted_at, rev)
-     VALUES (@id, @category, @title, @notes, @startAt, @endAt, @tags, @rating, @data, @source, @createdAt, @updatedAt, @deletedAt, @rev)
+    `INSERT INTO events (id, category, title, notes, start_at, end_at, start_s, end_s, tags, rating, data, source, created_at, updated_at, deleted_at, rev)
+     VALUES (@id, @category, @title, @notes, @startAt, @endAt, @startS, @endS, @tags, @rating, @data, @source, @createdAt, @updatedAt, @deletedAt, @rev)
      ON CONFLICT(id) DO UPDATE SET
        category=excluded.category, title=excluded.title, notes=excluded.notes, start_at=excluded.start_at,
-       end_at=excluded.end_at, tags=excluded.tags, rating=excluded.rating, data=excluded.data, source=excluded.source,
+       end_at=excluded.end_at, start_s=excluded.start_s, end_s=excluded.end_s, tags=excluded.tags, rating=excluded.rating, data=excluded.data, source=excluded.source,
        updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, rev=excluded.rev
      WHERE excluded.updated_at >= events.updated_at`,
   ).run({
@@ -118,6 +118,8 @@ export function upsertEvent(db: DB, e: Event): void {
     notes: e.notes ?? null,
     startAt: e.startAt,
     endAt: e.endAt ?? null,
+    startS: toEpochS(e.startAt),
+    endS: e.endAt ? toEpochS(e.endAt) : null,
     tags: JSON.stringify(e.tags ?? []),
     rating: e.rating ?? null,
     data: JSON.stringify(e.data ?? {}),

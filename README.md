@@ -26,12 +26,14 @@ A personal life tracker you run yourself. Log what you did through the day on a 
 - **Timeline** — one day at a time. Quick chips for the routine stuff (woke up, teeth, left house, vitamins, meals, workout, bed), a full editor for everything else: category, time range, tags, 0–10 rating, notes, and free-form `key: value` details like `kcal: 620`.
 - **Health overlay** — heart rate through the day with event ticks on the baseline, steps per hour, and a strip of the day's numbers (sleep, resting HR, HRV, active energy, workouts).
 - **Apple Health import** — drop `export.zip` straight from the Health app. It streams the XML, so multi-gigabyte exports are fine, and re-imports only add what's new.
-- **Review** — 7/14/30-day or custom range: per-day table, bar charts, averages, logging streak.
+- **Review** — 7/14/30-day or custom range: days stacked as timelines (sleep, events and heart rate per row), bar charts, averages, per-day table, logging streak.
+- **Test results** — bloods and clinic measurements entered a whole report at a time, with trend lines against the reference range. The iPhone app writes the ones Apple Health has a home for (glucose, blood pressure, SpO₂, temperature, pulse, weight, BMI, body fat, waist, lung function) into Health. Apple keeps lab panels like cholesterol read-only, so those stay in Sentience.
+- **No duplicates** — re-uploading the same export is detected by fingerprint; overlapping exports and iPhone sync store each reading once; iPhone + Watch steps and multi-app sleep aren't double counted; results Sentience writes into Health aren't read back in.
 - **Profile & record** — name, DOB, height, weight, timezone, bio, plus an open-ended record: conditions, medications, allergies, lab results, measurements, history, and **genetic markers imported from a 23andMe raw file** (parsed in the browser; ~60 well-studied SNPs are picked out for you to tick).
 - **Goals** — daily/weekly/monthly/once. Measured by hand, by counting timeline events (3 workouts a week), or straight from Apple Health (8,000 steps a day). Streaks included.
 - **Achievements** — a dozen to unlock, computed from your data.
 - **Export** — JSON or Markdown for any range. The Markdown is written for pasting into a chat: profile, record, goals, each day's health rollup, the timeline with heart rate context per event, and hourly HR/steps tables.
-- **Splash** — the Sentience intro animation on first open (click the logo to replay).
+- **Strands** — the intro: braided timeline strands around the wordmark that stretch out to both edges and settle as a moving ribbon along the top of the app (click the logo to replay). Icons throughout, no emoji.
 
 ## Quick start (laptop or mini PC)
 
@@ -94,8 +96,11 @@ Environment: `PORT` (4477), `HOST` (0.0.0.0), `SENTIENCE_DATA_DIR`, `SENTIENCE_D
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — how the pieces fit, data model, sync protocol
 - [`docs/API.md`](docs/API.md) — every endpoint
 - [`docs/EXPORT.md`](docs/EXPORT.md) — the export bundle and how to prompt with it
+- [`docs/INSTALL-IPHONE.md`](docs/INSTALL-IPHONE.md) — how to get the app onto your phone
 - [`ios/README.md`](ios/README.md) — building and using the iPhone app
 
 ## Privacy
 
 Everything stays on hardware you own. The only network traffic is between your phone and your server on your LAN. The 23andMe import runs entirely in the browser and only the markers you tick are saved.
+
+`.gitignore` blocks the things that must never reach GitHub: the SQLite database, 23andMe/Ancestry raw files, Apple Health exports, and exported analysis bundles (`sentience_*.md/json`). Keep personal files in a `private/` folder if you want them next to the code.

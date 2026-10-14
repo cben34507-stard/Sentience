@@ -4,6 +4,7 @@ struct SettingsView: View {
     @EnvironmentObject private var sync: SyncService
     @State private var url = ""
     @State private var healthOn = false
+    @State private var writeLabs = false
     @State private var pingResult: String?
     @State private var healthError: String?
 
@@ -26,9 +27,14 @@ struct SettingsView: View {
                             sync.healthEnabled = on
                             if on { Task { await enableHealth() } }
                         }
+                    Toggle("Write test results to Apple Health", isOn: $writeLabs)
+                        .onChange(of: writeLabs) { _, on in
+                            sync.writeLabsToHealth = on
+                            if on { Task { await enableHealth(write: true); await sync.writePendingLabsToHealth() } }
+                        }
                     if let healthError { Text(healthError).font(.footnote).foregroundStyle(.red) }
                 } header: { Text("HealthKit") } footer: {
-                    Text("Heart rate, resting HR, HRV, steps, distance, active energy, exercise minutes, SpO₂, weight, sleep and workouts. The first sync sends the last 90 days; use the web importer for full history.")
+                    Text("Reading: heart rate, resting HR, HRV, steps, distance, active energy, exercise minutes, SpO₂, weight, sleep and workouts. The first sync sends the last 90 days; the web importer handles full history, and nothing is stored twice. Writing: glucose, blood pressure, oxygen, temperature, pulse, weight, BMI, body fat, waist and lung-function results. Apple keeps lab panels such as cholesterol read-only, so those stay in Sentience.")
                 }
 
                 Section("Sync") {
@@ -55,19 +61,20 @@ struct SettingsView: View {
             .onAppear {
                 url = sync.serverURL
                 healthOn = sync.healthEnabled
+                writeLabs = sync.writeLabsToHealth
             }
         }
     }
 
     private func ping() async {
         guard let api = APIClient.configured else { pingResult = "Enter a full URL first"; return }
-        do { pingResult = try await api.ping() ? "Connected ✓" : "Unexpected reply" }
+        do { pingResult = try await api.ping() ? "Connected" : "Unexpected reply" }
         catch { pingResult = error.localizedDescription }
     }
 
-    private func enableHealth() async {
+    private func enableHealth(write: Bool = false) async {
         guard HealthKitService.available else { healthError = "HealthKit is not available on this device"; return }
-        do { try await HealthKitService.shared.requestAuthorization(); healthError = nil }
+        do { try await HealthKitService.shared.requestAuthorization(write: write || sync.writeLabsToHealth); healthError = nil }
         catch { healthError = error.localizedDescription }
     }
 }

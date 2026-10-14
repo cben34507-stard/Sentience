@@ -1,5 +1,7 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import { X, type LucideIcon } from "lucide-react";
 
 export function Card({ children, className = "", ...rest }: { children: ReactNode; className?: string } & React.HTMLAttributes<HTMLDivElement>) {
   return (
@@ -54,15 +56,16 @@ export function Modal({ open, onClose, title, children, wide }: { open: boolean;
       document.body.style.overflow = "";
     };
   }, [open, onClose]);
-  return (
+  // Portalled so page-transition transforms never clip the backdrop.
+  return createPortal(
     <AnimatePresence>
       {open && (
-        <motion.div className="fixed inset-0 z-40 flex items-end justify-center sm:items-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+        <motion.div className="fixed inset-0 z-[70] flex items-end justify-center sm:items-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
           <div className="absolute inset-0 bg-black/30 backdrop-blur-sm dark:bg-black/60" onClick={onClose} />
           <motion.div
             role="dialog"
             aria-modal
-            className={`relative m-0 max-h-[92vh] w-full overflow-y-auto rounded-t-3xl bg-paper p-6 shadow-pop sm:m-4 sm:rounded-3xl ${wide ? "sm:max-w-3xl" : "sm:max-w-lg"}`}
+            className={`relative m-0 max-h-[92vh] w-full overflow-y-auto rounded-t-3xl bg-paper p-6 shadow-pop sm:m-4 sm:rounded-3xl ${wide ? "sm:max-w-4xl" : "sm:max-w-xl"}`}
             initial={{ y: 40, opacity: 0, scale: 0.98 }}
             animate={{ y: 0, opacity: 1, scale: 1 }}
             exit={{ y: 24, opacity: 0, scale: 0.98 }}
@@ -71,14 +74,15 @@ export function Modal({ open, onClose, title, children, wide }: { open: boolean;
             <div className="mb-5 flex items-center justify-between">
               <h3 className="text-lg font-semibold tracking-tight">{title}</h3>
               <button onClick={onClose} className="btn-ghost -mr-2 h-9 w-9 rounded-full p-0" aria-label="Close">
-                ✕
+                <X className="h-4 w-4" />
               </button>
             </div>
             {children}
           </motion.div>
         </motion.div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body,
   );
 }
 
@@ -92,10 +96,12 @@ export function Field({ label, children, hint }: { label: string; children: Reac
   );
 }
 
-export function Empty({ icon, title, body, action }: { icon: string; title: string; body?: string; action?: ReactNode }) {
+export function Empty({ icon: Icon, title, body, action }: { icon: LucideIcon; title: string; body?: string; action?: ReactNode }) {
   return (
     <div className="flex flex-col items-center justify-center rounded-xl2 border border-dashed border-line px-6 py-12 text-center">
-      <div className="text-3xl">{icon}</div>
+      <div className="grid h-12 w-12 place-items-center rounded-2xl bg-paper-3 text-ink-2">
+        <Icon className="h-5 w-5" strokeWidth={1.8} />
+      </div>
       <div className="mt-3 font-medium text-ink">{title}</div>
       {body && <div className="mt-1 max-w-sm text-sm text-ink-3">{body}</div>}
       {action && <div className="mt-4">{action}</div>}

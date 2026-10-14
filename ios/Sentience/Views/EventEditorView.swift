@@ -33,7 +33,7 @@ struct EventEditorView: View {
                                     category = c
                                     if title.isEmpty || EventCategory.allCases.map(\.label).contains(title) { title = c.label }
                                 } label: {
-                                    Text("\(c.icon) \(c.label)")
+                                    Label(c.label, systemImage: c.symbol)
                                         .font(.footnote.weight(.medium))
                                         .padding(.horizontal, 12).padding(.vertical, 8)
                                         .background(Capsule().fill(category == c ? Color.primary : Color.clear))

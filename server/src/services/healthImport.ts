@@ -1,22 +1,26 @@
 import fs from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import sax from "sax";
 import yauzl from "yauzl";
 import type { DB } from "../lib/db.js";
 import { newId } from "../lib/ids.js";
 import { appleDateToIso } from "../lib/time.js";
-import { makeSampleInserter, makeWorkoutInserter } from "./health.js";
+import { makeSampleInserter, makeWorkoutInserter, OWN_SOURCE } from "./health.js";
 
 export interface ImportJob {
   id: string;
   filename: string;
-  status: "queued" | "running" | "done" | "error";
+  status: "queued" | "hashing" | "running" | "done" | "duplicate" | "error";
   recordsSeen: number;
   recordsAdded: number;
+  /** Rows already on record (from an earlier import or from iPhone sync). */
+  recordsSkipped: number;
   workoutsSeen: number;
   error: string | null;
   startedAt: string;
   finishedAt: string | null;
+  exportDate: string | null;
 }
 
 interface JobRow {
@@ -25,6 +29,8 @@ interface JobRow {
   status: ImportJob["status"];
   records_seen: number;
   records_added: number;
+  records_skipped: number;
+  export_date: string | null;
   workouts_seen: number;
   error: string | null;
   started_at: string;
@@ -37,10 +43,12 @@ const rowToJob = (r: JobRow): ImportJob => ({
   status: r.status,
   recordsSeen: r.records_seen,
   recordsAdded: r.records_added,
+  recordsSkipped: r.records_skipped ?? 0,
   workoutsSeen: r.workouts_seen,
   error: r.error,
   startedAt: r.started_at,
   finishedAt: r.finished_at,
+  exportDate: r.export_date,
 });
 
 export function getJob(db: DB, id: string): ImportJob | null {
@@ -56,7 +64,7 @@ export function listJobs(db: DB): ImportJob[] {
  * Kicks off a background import of an Apple Health export (export.zip or export.xml).
  * Progress is written to the health_imports table so the UI can poll it.
  */
-export function startImport(db: DB, filePath: string, originalName: string): ImportJob {
+export function startImport(db: DB, filePath: string, originalName: string, force = false): ImportJob {
   const id = newId();
   const now = new Date().toISOString();
   db.prepare(
@@ -64,7 +72,8 @@ export function startImport(db: DB, filePath: string, originalName: string): Imp
   ).run(id, originalName, now);
 
   setImmediate(() => {
-    runImport(db, id, filePath, originalName).catch((err) => {
+    runImport(db, id, filePath, originalName, force).catch((err) => {
+      fs.promises.unlink(filePath).catch(() => undefined);
       db.prepare(`UPDATE health_imports SET status='error', error=?, finished_at=? WHERE id=?`).run(
         String(err?.message ?? err),
         new Date().toISOString(),
@@ -76,20 +85,51 @@ export function startImport(db: DB, filePath: string, originalName: string): Imp
   return getJob(db, id)!;
 }
 
-async function runImport(db: DB, jobId: string, filePath: string, originalName: string): Promise<void> {
+function sha256File(file: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const h = createHash("sha256");
+    fs.createReadStream(file)
+      .on("data", (c) => h.update(c))
+      .on("end", () => resolve(h.digest("hex")))
+      .on("error", reject);
+  });
+}
+
+async function runImport(db: DB, jobId: string, filePath: string, originalName: string, force: boolean): Promise<void> {
+  // Guard 1: the exact same file was already imported → skip the whole thing.
+  db.prepare(`UPDATE health_imports SET status='hashing' WHERE id=?`).run(jobId);
+  const hash = await sha256File(filePath);
+  db.prepare(`UPDATE health_imports SET sha256=? WHERE id=?`).run(hash, jobId);
+  const prior = db
+    .prepare(`SELECT started_at FROM health_imports WHERE sha256 = ? AND status = 'done' AND id != ? ORDER BY started_at LIMIT 1`)
+    .get(hash, jobId) as { started_at: string } | undefined;
+  if (prior && !force) {
+    db.prepare(`UPDATE health_imports SET status='duplicate', error=?, finished_at=? WHERE id=?`).run(
+      `This exact file was already imported on ${prior.started_at.slice(0, 10)}. Nothing was changed.`,
+      new Date().toISOString(),
+      jobId,
+    );
+    fs.promises.unlink(filePath).catch(() => undefined);
+    return;
+  }
+
+  // Guard 2: every row goes through the dedupe index, so overlapping exports
+  // and HealthKit sync only ever add what is genuinely new.
   db.prepare(`UPDATE health_imports SET status='running' WHERE id=?`).run(jobId);
   const stream = await openExportStream(filePath, originalName);
   const counters = await parseExport(db, stream, (c) => {
-    db.prepare(`UPDATE health_imports SET records_seen=?, records_added=?, workouts_seen=? WHERE id=?`).run(
+    db.prepare(`UPDATE health_imports SET records_seen=?, records_added=?, records_skipped=?, workouts_seen=?, export_date=? WHERE id=?`).run(
       c.seen,
       c.added,
+      c.skipped,
       c.workouts,
+      c.exportDate,
       jobId,
     );
   });
   db.prepare(
-    `UPDATE health_imports SET status='done', records_seen=?, records_added=?, workouts_seen=?, finished_at=? WHERE id=?`,
-  ).run(counters.seen, counters.added, counters.workouts, new Date().toISOString(), jobId);
+    `UPDATE health_imports SET status='done', records_seen=?, records_added=?, records_skipped=?, workouts_seen=?, export_date=?, finished_at=? WHERE id=?`,
+  ).run(counters.seen, counters.added, counters.skipped, counters.workouts, counters.exportDate, new Date().toISOString(), jobId);
   fs.promises.unlink(filePath).catch(() => undefined);
 }
 
@@ -125,7 +165,9 @@ function openExportStream(filePath: string, originalName: string): Promise<NodeJ
 interface Counters {
   seen: number;
   added: number;
+  skipped: number;
   workouts: number;
+  exportDate: string | null;
 }
 
 const BATCH = 5_000;
@@ -140,7 +182,55 @@ export function parseExport(
     const parser = sax.createStream(false, { lowercase: true, trim: true });
     const insertSample = makeSampleInserter(db);
     const insertWorkout = makeWorkoutInserter(db);
-    const counters: Counters = { seen: 0, added: 0, workouts: 0 };
+    const counters: Counters = { seen: 0, added: 0, skipped: 0, workouts: 0, exportDate: null };
+    // Records are buffered until their closing tag so MetadataEntry children
+    // can be read: samples Sentience itself wrote to Apple Health carry our
+    // sync identifier and are skipped, so lab results don't echo back.
+    let currentRecord: null | { a: Record<string, string>; own: boolean } = null;
+
+    const flushRecord = () => {
+      if (!currentRecord) return;
+      const { a, own } = currentRecord;
+      currentRecord = null;
+      begin();
+      counters.seen++;
+      if (own || a.sourcename === OWN_SOURCE) {
+        counters.skipped++;
+        return;
+      }
+      const type = a.type;
+      const isCategory = type?.startsWith("HKCategoryType");
+      const startAt = appleDateToIso(a.startdate);
+      const endAt = appleDateToIso(a.enddate);
+      let value: number;
+      let categoryValue: string | null = null;
+      if (isCategory) {
+        categoryValue = a.value ?? null;
+        value = (Date.parse(endAt) - Date.parse(startAt)) / 60_000; // minutes
+      } else {
+        value = Number(a.value);
+        if (!Number.isFinite(value)) {
+          counters.skipped++;
+          return;
+        }
+      }
+      const ok = insertSample({
+        type,
+        startAt,
+        endAt,
+        value,
+        unit: isCategory ? "min" : a.unit ?? "",
+        categoryValue,
+        sourceName: a.sourcename ?? "",
+        device: a.device ?? null,
+      });
+      if (ok) counters.added++;
+      else counters.skipped++;
+      if (counters.seen % BATCH === 0) {
+        commit();
+        onProgress?.(counters);
+      }
+    };
 
     let inBatch = false;
     const begin = () => {
@@ -169,37 +259,16 @@ export function parseExport(
     parser.on("opentag", (node) => {
       const a = node.attributes as Record<string, string>;
       try {
-        if (node.name === "record") {
-          begin();
-          counters.seen++;
-          const type = a.type;
-          const isCategory = type?.startsWith("HKCategoryType");
-          const startAt = appleDateToIso(a.startdate);
-          const endAt = appleDateToIso(a.enddate);
-          let value: number;
-          let categoryValue: string | null = null;
-          if (isCategory) {
-            categoryValue = a.value ?? null;
-            value = (Date.parse(endAt) - Date.parse(startAt)) / 60_000; // minutes
-          } else {
-            value = Number(a.value);
-            if (!Number.isFinite(value)) return;
+        if (node.name === "exportdate" && a.value) {
+          try {
+            counters.exportDate = appleDateToIso(a.value);
+          } catch {
+            /* ignore */
           }
-          const ok = insertSample({
-            type,
-            startAt,
-            endAt,
-            value,
-            unit: isCategory ? "min" : a.unit ?? "",
-            categoryValue,
-            sourceName: a.sourcename ?? "",
-            device: a.device ?? null,
-          });
-          if (ok) counters.added++;
-          if (counters.seen % BATCH === 0) {
-            commit();
-            onProgress?.(counters);
-          }
+        } else if (node.name === "record") {
+          currentRecord = { a, own: false };
+        } else if (node.name === "metadataentry" && currentRecord) {
+          if (a.key === "HKMetadataKeySyncIdentifier" && (a.value ?? "").startsWith("sentience-")) currentRecord.own = true;
         } else if (node.name === "workout") {
           begin();
           counters.workouts++;
@@ -237,6 +306,15 @@ export function parseExport(
     });
 
     parser.on("closetag", (name) => {
+      if (name === "record") {
+        try {
+          flushRecord();
+        } catch (err) {
+          currentRecord = null;
+          if (counters.seen < 5) console.warn("skipping row", err);
+        }
+        return;
+      }
       if (name === "workout" && currentWorkout) {
         insertWorkout(currentWorkout);
         currentWorkout = null;

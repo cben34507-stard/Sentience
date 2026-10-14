@@ -11,6 +11,7 @@ Two renderings of the same bundle. Both come from `GET /api/export`.
   "profile": { "name": "...", "dateOfBirth": "...", "heightCm": 180, "weightKg": 78, "timezone": "Europe/London", "bio": "..." },
   "facts":   [ { "kind": "condition", "key": "ADHD", "value": "...", "source": "...", "recordedOn": "..." } ],
   "goals":   [ { "goal": {...}, "current": 7785, "target": 8000, "percent": 0.97, "streak": 3, "complete": false } ],
+  "labResults": [ { "name": "Vitamin D (25-OH)", "value": 48, "unit": "nmol/L", "refLow": 50, "refHigh": 125, "takenAt": "...", "lab": "GP" } ],
   "days": [
     {
       "date": "2026-10-14",
@@ -25,7 +26,7 @@ Two renderings of the same bundle. Both come from `GET /api/export`.
 
 ## Markdown (`format=md`)
 
-Written for pasting into a chat. Sections: *About me*, *Record* (grouped by kind), *Goals*, then one block per day with the health line, the timeline (each event annotated with the hour's average heart rate vs the day's average), and an hour-by-hour table of HR and steps. It ends with a short brief on what to look for.
+Written for pasting into a chat. Sections: *About me*, *Record* (grouped by kind), *Goals*, *Test results* (every result to date, newest first, with range and LOW/HIGH flag), then one block per day with the health line, the timeline (each event annotated with the hour's average heart rate vs the day's average), and an hour-by-hour table of HR and steps. It ends with a short brief on what to look for.
 
 ## A prompt that works well
 

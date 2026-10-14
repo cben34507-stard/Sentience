@@ -15,7 +15,8 @@
     "build": "npm run build --workspace=packages/shared && npm run build --workspace=web && npm run build --workspace=server",
     "start": "npm run start --workspace=server",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present"
+    "test": "npm run test --workspaces --if-present",
+    "gen:ios": "npm run build --workspace=packages/shared && node scripts/gen-ios-presets.mjs"
   },
   "engines": {
     "node": ">=20"

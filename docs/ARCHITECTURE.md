@@ -14,18 +14,34 @@
 | `profile` | single row (id = 1): name, DOB, sex, height, weight, **timezone**, bio |
 | `facts` | open-ended record: `kind` (condition, medication, allergy, genetic, lab, measurement, preference, history, other), `key`, `value`, `source`, `recorded_on` |
 | `events` | the timeline: `category`, `title`, `start_at`, optional `end_at`, `tags` (JSON), `rating`, `data` (JSON bag), `source` (web/ios/import/api) |
-| `health_samples` | Apple Health quantity + category samples; unique on (type, start, end, value, source) so re-imports are idempotent; units normalised (mi→km, lb→kg, count/min→bpm) |
-| `health_workouts` | one row per workout with duration, energy, distance |
-| `health_imports` | background import jobs with progress counters |
+| `health_samples` | Apple Health quantity + category samples; `start_s`/`end_s` epoch seconds and a normalised `source_key`; unique on (type, start_s, end_s, source_key); units normalised (mi→km, lb→kg, count/min→bpm) |
+| `health_workouts` | one row per workout; unique on (start_s, end_s, source_key) |
+| `health_imports` | background import jobs with progress counters, SHA-256 of the uploaded file and the export's own date |
+| `lab_results` | test results: `test_key` (preset or `custom`), value or `value_text`, unit, reference range, `taken_at`/`taken_s`, lab, notes |
 | `goals`, `goal_progress` | goals with a `metric` string: `manual`, `events:<category>`, `health:<HKType>` |
 | `achievements` | unlock timestamps keyed by code |
 | `devices`, `meta` | sync bookkeeping (`meta.rev` is the global revision counter) |
 
 All synced tables (`events`, `facts`, `goals`, `goal_progress`, `profile`) carry `updated_at`, `deleted_at` (tombstone) and `rev`.
 
+## Duplicate protection
+
+| Situation | Guard |
+|---|---|
+| Same `export.zip` uploaded twice | SHA-256 of the file; the second job finishes as `duplicate` and changes nothing (`?force=1` to override) |
+| Newer export overlapping an older one | Unique index on (type, start second, end second, source). Instants are compared as epoch seconds, so `08:00+01:00` and `07:00:00.412Z` are the same reading |
+| Export and iPhone HealthKit sync overlapping | Same index; source names are normalised (curly vs straight apostrophes, case, spacing) |
+| iPhone and Watch both counting steps / distance / energy | Daily and hourly totals take the busiest source per hour instead of summing sources (`cumulativeSum`) |
+| Several apps recording the same night | Asleep intervals are unioned; InBed/Awake ignored |
+| Two apps logging the same workout | Overlapping sessions (>60% overlap) collapse to the longest |
+| Test results Sentience writes into Apple Health | Written with `HKMetadataKeySyncIdentifier = sentience-…`; the iOS reader skips its own bundle and that prefix, and the export importer skips records carrying it |
+| Same test result entered twice | Same test, same instant, same value → existing row returned |
+
+Schema v2 (`migrate()` in `server/src/lib/db.ts`) backfills the epoch columns on older databases and deletes duplicates the old key let through.
+
 ## Days and timezones
 
-Health samples and events are stored as absolute instants (ISO 8601 with offset). "A day" is computed at query time from the profile's IANA timezone (`server/src/lib/time.ts: dayRange`), so changing timezone re-buckets everything correctly without rewriting rows. Sleep belongs to the morning it ended on (window 18:00 previous day → 18:00).
+Health samples and events are stored as absolute instants (ISO 8601 with offset) plus epoch-second columns used for every range query. "A day" is computed at query time from the profile's IANA timezone (`server/src/lib/time.ts: dayRange`), so changing timezone re-buckets everything correctly without rewriting rows. Sleep belongs to the morning it ended on (window 18:00 previous day → 18:00).
 
 ## Apple Health import
 
@@ -43,8 +59,8 @@ Category samples (sleep) store the stage name in `category_value` and the durati
 Single endpoint, `POST /api/sync`:
 
 ```
-push:  { deviceId, since, events[], goals[], goalProgress[], facts[], healthSamples[], healthWorkouts[] }
-pull:  { cursor, serverTime, events[], goals[], goalProgress[], facts[], profile, applied{} }
+push:  { deviceId, since, events[], goals[], goalProgress[], facts[], labResults[], healthSamples[], healthWorkouts[] }
+pull:  { cursor, serverTime, events[], goals[], goalProgress[], facts[], labResults[], profile, applied{} }
 ```
 
 - Every upsert is last-write-wins on `updatedAt` (`WHERE excluded.updated_at >= table.updated_at`), and bumps the row's `rev` from the global counter.
@@ -59,3 +75,9 @@ pull:  { cursor, serverTime, events[], goals[], goalProgress[], facts[], profile
 ## Export
 
 `buildBundle(from, to)` assembles profile, record, goal statuses and per-day blocks (events, health summary, hourly HR averages, hourly step sums). `bundleToMarkdown()` renders the same bundle as prose with a per-event heart-rate context line and ends with a short analyst brief. Max range 92 days.
+
+## Test results and Apple Health
+
+Apple Health stores lab panels as `HKClinicalRecord`s, which only healthcare providers can add (through Health Records); apps can read them but not write them. Sentience therefore writes each result whose preset carries a `healthKit` mapping in `LAB_TESTS` as an ordinary quantity sample (glucose, BP as a correlation, SpO₂, temperature, resting HR, weight, BMI, body fat, waist, FEV1, FVC, peak flow), tagged with a sync identifier and a version so edits replace the old sample. Deleting a result in Sentience deletes it from Health. Everything else lives only in Sentience and its exports.
+
+The iOS preset list is generated from the shared one: `node scripts/gen-ios-presets.mjs`.

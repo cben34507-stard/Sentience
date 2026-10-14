@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import { CalendarRange, Download } from "lucide-react";
+import { Swimlane } from "../components/Swimlane";
 import { Link } from "react-router-dom";
-import { api, type Overview } from "../lib/api";
+import { api, type Overview, type TimelineDay } from "../lib/api";
 import { addDays, fmtDateShort, fmtNum, minutesToHm, todayLocal, weekday } from "../lib/date";
 import { Card, Empty, PageTitle, SectionTitle, Spinner, Stat } from "../components/ui";
 import { DayBars } from "../components/Charts";
@@ -17,12 +19,17 @@ export function Review() {
   const [to, setTo] = useState(today);
   const [from, setFrom] = useState(addDays(today, -6));
   const [data, setData] = useState<Overview | null>(null);
+  const [lanes, setLanes] = useState<TimelineDay[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    api
+      .timeline(from, to < addDays(from, 61) ? to : addDays(from, 61))
+      .then((d) => !cancelled && setLanes(d.days))
+      .catch(() => undefined);
     api
       .overview(from, to)
       .then((d) => !cancelled && setData(d))
@@ -74,7 +81,7 @@ export function Review() {
               </button>
             ))}
             <input type="date" className="field h-9 w-auto py-0 text-xs" value={from} max={to} onChange={(e) => e.target.value && setFrom(e.target.value)} />
-            <span className="text-ink-3">→</span>
+            <span className="text-ink-3">to</span>
             <input type="date" className="field h-9 w-auto py-0 text-xs" value={to} min={from} max={today} onChange={(e) => e.target.value && setTo(e.target.value)} />
           </>
         }
@@ -94,7 +101,12 @@ export function Review() {
         </div>
       </Card>
 
-      <div className="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <Card className="mb-6 p-5">
+        <SectionTitle aside={<span className="text-xs text-ink-3">hover any mark for details</span>}>Days as timelines</SectionTitle>
+        {lanes ? <Swimlane days={lanes} /> : <div className="flex justify-center py-10"><Spinner /></div>}
+      </Card>
+
+      <div className="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-2 2xl:grid-cols-4">
         <Card className="p-5">
           <SectionTitle>Steps per day</SectionTitle>
           <DayBars values={days.map((d) => d.steps)} labels={labels} format={(v) => `${fmtNum(v)} steps`} />
@@ -120,7 +132,7 @@ export function Review() {
             <Spinner />
           </div>
         ) : nDays === 0 ? (
-          <Empty icon="📅" title="No days in range" />
+          <Empty icon={CalendarRange} title="No days in range" />
         ) : (
           <div className="-mx-5 overflow-x-auto">
             <table className="w-full min-w-[720px] text-sm">
@@ -172,10 +184,10 @@ export function Review() {
         <div className="flex flex-wrap gap-2">
           <CopyMd from={from} to={to} />
           <a className="btn-outline" href={api.exportUrl(from, to, "md")}>
-            Download .md
+            <Download className="h-4 w-4" /> .md
           </a>
           <a className="btn-outline" href={api.exportUrl(from, to, "json")}>
-            Download .json
+            <Download className="h-4 w-4" /> .json
           </a>
         </div>
       </Card>

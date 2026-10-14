@@ -37,26 +37,26 @@ export type EventCategory = z.infer<typeof EventCategory>;
 
 export const EVENT_CATEGORY_META: Record<
   EventCategory,
-  { label: string; icon: string; hint: string }
+  { label: string; hint: string }
 > = {
-  meal: { label: "Meal", icon: "🍽️", hint: "What did you eat, roughly how much" },
-  drink: { label: "Drink", icon: "🥤", hint: "Water, coffee, alcohol…" },
-  supplement: { label: "Supplement", icon: "💊", hint: "Vitamins and supplements" },
-  medication: { label: "Medication", icon: "🩺", hint: "Prescribed or over-the-counter" },
-  hygiene: { label: "Hygiene", icon: "🪥", hint: "Teeth, shower, skincare" },
-  sleep: { label: "Sleep", icon: "🌙", hint: "Went to bed / naps" },
-  wake: { label: "Wake", icon: "☀️", hint: "Got up for the day" },
-  movement: { label: "Movement", icon: "🚶", hint: "Walks, commutes, left/returned home" },
-  workout: { label: "Workout", icon: "🏋️", hint: "Training sessions" },
-  work: { label: "Work", icon: "💼", hint: "Focused work blocks" },
-  study: { label: "Study", icon: "📚", hint: "Learning" },
-  social: { label: "Social", icon: "👥", hint: "Time with people" },
-  leisure: { label: "Leisure", icon: "🎮", hint: "Downtime, screens, hobbies" },
-  mood: { label: "Mood", icon: "🧠", hint: "How you felt, 1–10" },
-  symptom: { label: "Symptom", icon: "🤒", hint: "Headache, fatigue, pain…" },
-  location: { label: "Location", icon: "📍", hint: "Where you were" },
-  chore: { label: "Chore", icon: "🧺", hint: "Errands and housework" },
-  note: { label: "Note", icon: "📝", hint: "Anything else" },
+  meal: { label: "Meal", hint: "What did you eat, roughly how much" },
+  drink: { label: "Drink", hint: "Water, coffee, alcohol…" },
+  supplement: { label: "Supplement", hint: "Vitamins and supplements" },
+  medication: { label: "Medication", hint: "Prescribed or over-the-counter" },
+  hygiene: { label: "Hygiene", hint: "Teeth, shower, skincare" },
+  sleep: { label: "Sleep", hint: "Went to bed / naps" },
+  wake: { label: "Wake", hint: "Got up for the day" },
+  movement: { label: "Movement", hint: "Walks, commutes, left/returned home" },
+  workout: { label: "Workout", hint: "Training sessions" },
+  work: { label: "Work", hint: "Focused work blocks" },
+  study: { label: "Study", hint: "Learning" },
+  social: { label: "Social", hint: "Time with people" },
+  leisure: { label: "Leisure", hint: "Downtime, screens, hobbies" },
+  mood: { label: "Mood", hint: "How you felt, 1–10" },
+  symptom: { label: "Symptom", hint: "Headache, fatigue, pain…" },
+  location: { label: "Location", hint: "Where you were" },
+  chore: { label: "Chore", hint: "Errands and housework" },
+  note: { label: "Note", hint: "Anything else" },
 };
 
 export const EventSchema = z.object({
@@ -308,6 +308,139 @@ export const AchievementSchema = z.object({
 });
 export type Achievement = z.infer<typeof AchievementSchema>;
 
+
+/* ------------------------------------------------------------------ */
+/* Test results — bloods and other measurements from the doctor        */
+/* ------------------------------------------------------------------ */
+
+export const LabResultSchema = z.object({
+  id,
+  /** Preset key from LAB_TESTS, or "custom". */
+  testKey: z.string().min(1).max(60),
+  /** Display name, e.g. "Vitamin D (25-OH)". */
+  name: z.string().min(1).max(200),
+  /** Panel or report grouping, e.g. "Lipids", "Full blood count". */
+  panel: z.string().max(120).default(""),
+  value: z.number().nullable(),
+  /** For non-numeric results such as "negative" or "<0.5". */
+  valueText: z.string().max(200).nullable().optional(),
+  unit: z.string().max(40).default(""),
+  refLow: z.number().nullable().optional(),
+  refHigh: z.number().nullable().optional(),
+  /** When the sample was taken. */
+  takenAt: isoDateTime,
+  /** GP surgery, hospital, private lab. */
+  lab: z.string().max(200).default(""),
+  notes: z.string().max(2000).default(""),
+  createdAt: isoDateTime,
+  updatedAt: isoDateTime,
+  deletedAt: isoDateTime.optional().nullable(),
+});
+export type LabResult = z.infer<typeof LabResultSchema>;
+export const LabResultInputSchema = LabResultSchema.omit({ id: true, createdAt: true, updatedAt: true, deletedAt: true }).partial({
+  panel: true,
+  valueText: true,
+  unit: true,
+  refLow: true,
+  refHigh: true,
+  lab: true,
+  notes: true,
+});
+export type LabResultInput = z.infer<typeof LabResultInputSchema>;
+
+export type LabFlag = "low" | "normal" | "high" | "unknown";
+export function labFlag(r: Pick<LabResult, "value" | "refLow" | "refHigh">): LabFlag {
+  if (r.value == null || (r.refLow == null && r.refHigh == null)) return "unknown";
+  if (r.refLow != null && r.value < r.refLow) return "low";
+  if (r.refHigh != null && r.value > r.refHigh) return "high";
+  return "normal";
+}
+
+export interface LabTestPreset {
+  key: string;
+  name: string;
+  panel: string;
+  unit: string;
+  /** Typical adult range. Labs differ, so the form asks you to use the range on your report. */
+  refLow?: number;
+  refHigh?: number;
+  /**
+   * HealthKit quantity type the iPhone app writes this result to.
+   * Apple Health keeps lab panels as read-only clinical records, so only
+   * results with a matching HealthKit type can be shared over.
+   */
+  healthKit?: { type: string; unit: string };
+}
+
+export const LAB_TESTS: LabTestPreset[] = [
+  // Diabetes & glucose
+  { key: "hba1c", name: "HbA1c", panel: "Diabetes", unit: "mmol/mol", refHigh: 41 },
+  { key: "glucose_fasting", name: "Glucose (fasting)", panel: "Diabetes", unit: "mmol/L", refLow: 3.9, refHigh: 5.5, healthKit: { type: "HKQuantityTypeIdentifierBloodGlucose", unit: "mmol<180.15588000005408>/L" } },
+  { key: "glucose_random", name: "Glucose (random)", panel: "Diabetes", unit: "mmol/L", refLow: 4.0, refHigh: 7.8, healthKit: { type: "HKQuantityTypeIdentifierBloodGlucose", unit: "mmol<180.15588000005408>/L" } },
+  // Lipids
+  { key: "chol_total", name: "Total cholesterol", panel: "Lipids", unit: "mmol/L", refHigh: 5.0 },
+  { key: "ldl", name: "LDL cholesterol", panel: "Lipids", unit: "mmol/L", refHigh: 3.0 },
+  { key: "hdl", name: "HDL cholesterol", panel: "Lipids", unit: "mmol/L", refLow: 1.0 },
+  { key: "non_hdl", name: "Non-HDL cholesterol", panel: "Lipids", unit: "mmol/L", refHigh: 4.0 },
+  { key: "triglycerides", name: "Triglycerides", panel: "Lipids", unit: "mmol/L", refHigh: 1.7 },
+  { key: "chol_hdl_ratio", name: "Cholesterol : HDL ratio", panel: "Lipids", unit: "ratio", refHigh: 4.0 },
+  // Vitamins & iron
+  { key: "vitd", name: "Vitamin D (25-OH)", panel: "Vitamins & iron", unit: "nmol/L", refLow: 50, refHigh: 125 },
+  { key: "b12", name: "Vitamin B12", panel: "Vitamins & iron", unit: "ng/L", refLow: 200, refHigh: 900 },
+  { key: "folate", name: "Folate (serum)", panel: "Vitamins & iron", unit: "µg/L", refLow: 3, refHigh: 20 },
+  { key: "ferritin", name: "Ferritin", panel: "Vitamins & iron", unit: "µg/L", refLow: 30, refHigh: 400 },
+  { key: "iron", name: "Iron (serum)", panel: "Vitamins & iron", unit: "µmol/L", refLow: 10, refHigh: 30 },
+  { key: "tsat", name: "Transferrin saturation", panel: "Vitamins & iron", unit: "%", refLow: 20, refHigh: 50 },
+  // Full blood count
+  { key: "hb", name: "Haemoglobin", panel: "Full blood count", unit: "g/L", refLow: 130, refHigh: 180 },
+  { key: "wbc", name: "White cell count", panel: "Full blood count", unit: "×10⁹/L", refLow: 4.0, refHigh: 11.0 },
+  { key: "platelets", name: "Platelets", panel: "Full blood count", unit: "×10⁹/L", refLow: 150, refHigh: 400 },
+  { key: "mcv", name: "MCV", panel: "Full blood count", unit: "fL", refLow: 80, refHigh: 100 },
+  { key: "neutrophils", name: "Neutrophils", panel: "Full blood count", unit: "×10⁹/L", refLow: 2.0, refHigh: 7.5 },
+  { key: "lymphocytes", name: "Lymphocytes", panel: "Full blood count", unit: "×10⁹/L", refLow: 1.0, refHigh: 4.0 },
+  // Thyroid
+  { key: "tsh", name: "TSH", panel: "Thyroid", unit: "mU/L", refLow: 0.27, refHigh: 4.2 },
+  { key: "ft4", name: "Free T4", panel: "Thyroid", unit: "pmol/L", refLow: 12, refHigh: 22 },
+  { key: "ft3", name: "Free T3", panel: "Thyroid", unit: "pmol/L", refLow: 3.1, refHigh: 6.8 },
+  // Liver
+  { key: "alt", name: "ALT", panel: "Liver", unit: "U/L", refHigh: 40 },
+  { key: "ast", name: "AST", panel: "Liver", unit: "U/L", refHigh: 40 },
+  { key: "alp", name: "ALP", panel: "Liver", unit: "U/L", refLow: 30, refHigh: 130 },
+  { key: "ggt", name: "GGT", panel: "Liver", unit: "U/L", refHigh: 55 },
+  { key: "bilirubin", name: "Bilirubin", panel: "Liver", unit: "µmol/L", refHigh: 21 },
+  { key: "albumin", name: "Albumin", panel: "Liver", unit: "g/L", refLow: 35, refHigh: 50 },
+  // Kidney & electrolytes
+  { key: "creatinine", name: "Creatinine", panel: "Kidney", unit: "µmol/L", refLow: 59, refHigh: 104 },
+  { key: "egfr", name: "eGFR", panel: "Kidney", unit: "mL/min/1.73m²", refLow: 60 },
+  { key: "urea", name: "Urea", panel: "Kidney", unit: "mmol/L", refLow: 2.5, refHigh: 7.8 },
+  { key: "sodium", name: "Sodium", panel: "Kidney", unit: "mmol/L", refLow: 133, refHigh: 146 },
+  { key: "potassium", name: "Potassium", panel: "Kidney", unit: "mmol/L", refLow: 3.5, refHigh: 5.3 },
+  { key: "calcium_adj", name: "Calcium (adjusted)", panel: "Bone", unit: "mmol/L", refLow: 2.2, refHigh: 2.6 },
+  { key: "magnesium", name: "Magnesium", panel: "Bone", unit: "mmol/L", refLow: 0.7, refHigh: 1.0 },
+  { key: "urate", name: "Uric acid", panel: "Kidney", unit: "µmol/L", refLow: 200, refHigh: 430 },
+  // Inflammation & hormones
+  { key: "crp", name: "CRP", panel: "Inflammation", unit: "mg/L", refHigh: 5 },
+  { key: "esr", name: "ESR", panel: "Inflammation", unit: "mm/hr", refHigh: 20 },
+  { key: "testosterone", name: "Testosterone (total)", panel: "Hormones", unit: "nmol/L", refLow: 8.6, refHigh: 29 },
+  { key: "cortisol_am", name: "Cortisol (morning)", panel: "Hormones", unit: "nmol/L" },
+  { key: "psa", name: "PSA", panel: "Hormones", unit: "µg/L", refHigh: 4 },
+  // Measurements that Apple Health has a home for
+  { key: "bp_sys", name: "Blood pressure (systolic)", panel: "Clinic measurements", unit: "mmHg", refHigh: 140, healthKit: { type: "HKQuantityTypeIdentifierBloodPressureSystolic", unit: "mmHg" } },
+  { key: "bp_dia", name: "Blood pressure (diastolic)", panel: "Clinic measurements", unit: "mmHg", refHigh: 90, healthKit: { type: "HKQuantityTypeIdentifierBloodPressureDiastolic", unit: "mmHg" } },
+  { key: "spo2", name: "Oxygen saturation", panel: "Clinic measurements", unit: "%", refLow: 95, healthKit: { type: "HKQuantityTypeIdentifierOxygenSaturation", unit: "%" } },
+  { key: "temp", name: "Body temperature", panel: "Clinic measurements", unit: "°C", refLow: 36.1, refHigh: 37.5, healthKit: { type: "HKQuantityTypeIdentifierBodyTemperature", unit: "degC" } },
+  { key: "pulse", name: "Pulse (resting)", panel: "Clinic measurements", unit: "bpm", refLow: 50, refHigh: 100, healthKit: { type: "HKQuantityTypeIdentifierRestingHeartRate", unit: "count/min" } },
+  { key: "weight", name: "Weight", panel: "Clinic measurements", unit: "kg", healthKit: { type: "HKQuantityTypeIdentifierBodyMass", unit: "kg" } },
+  { key: "bmi", name: "BMI", panel: "Clinic measurements", unit: "kg/m²", refLow: 18.5, refHigh: 24.9, healthKit: { type: "HKQuantityTypeIdentifierBodyMassIndex", unit: "count" } },
+  { key: "body_fat", name: "Body fat", panel: "Clinic measurements", unit: "%", healthKit: { type: "HKQuantityTypeIdentifierBodyFatPercentage", unit: "%" } },
+  { key: "waist", name: "Waist circumference", panel: "Clinic measurements", unit: "cm", healthKit: { type: "HKQuantityTypeIdentifierWaistCircumference", unit: "cm" } },
+  { key: "fev1", name: "FEV1", panel: "Lung function", unit: "L", healthKit: { type: "HKQuantityTypeIdentifierForcedExpiratoryVolume1", unit: "L" } },
+  { key: "fvc", name: "FVC", panel: "Lung function", unit: "L", healthKit: { type: "HKQuantityTypeIdentifierForcedVitalCapacity", unit: "L" } },
+  { key: "peak_flow", name: "Peak flow", panel: "Lung function", unit: "L/min", healthKit: { type: "HKQuantityTypeIdentifierPeakExpiratoryFlowRate", unit: "L/min" } },
+];
+
+export const LAB_TEST_BY_KEY: Record<string, LabTestPreset> = Object.fromEntries(LAB_TESTS.map((t) => [t.key, t]));
+
 /* ------------------------------------------------------------------ */
 /* Export bundle — the thing you hand to an analyst (human or AI)      */
 /* ------------------------------------------------------------------ */
@@ -320,6 +453,7 @@ export const ExportBundleSchema = z.object({
   profile: ProfileSchema,
   facts: z.array(FactSchema),
   goals: z.array(GoalStatusSchema),
+  labResults: z.array(LabResultSchema),
   days: z.array(
     z.object({
       date: isoDate,
@@ -345,7 +479,8 @@ export const SyncPushSchema = z.object({
   goals: z.array(GoalSchema).default([]),
   goalProgress: z.array(GoalProgressSchema).default([]),
   facts: z.array(FactSchema).default([]),
-  healthSamples: z.array(HealthSampleSchema).default([]),
+  labResults: z.array(LabResultSchema).default([]),
+  healthSamples: z.array(HealthSampleSchema.extend({ categoryValue: z.string().nullable().optional() })).default([]),
   healthWorkouts: z.array(HealthWorkoutSchema).default([]),
 });
 export type SyncPush = z.infer<typeof SyncPushSchema>;
@@ -357,6 +492,7 @@ export const SyncPullSchema = z.object({
   goals: z.array(GoalSchema),
   goalProgress: z.array(GoalProgressSchema),
   facts: z.array(FactSchema),
+  labResults: z.array(LabResultSchema),
   profile: ProfileSchema,
 });
 export type SyncPull = z.infer<typeof SyncPullSchema>;

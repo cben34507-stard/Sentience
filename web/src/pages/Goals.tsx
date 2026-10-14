@@ -5,6 +5,9 @@ import { EVENT_CATEGORIES, EVENT_CATEGORY_META, GOAL_CADENCES, HEALTH_TYPE_META 
 import { api } from "../lib/api";
 import { fmtNum, todayLocal } from "../lib/date";
 import { Card, Empty, Field, Modal, PageTitle, Ring, SectionTitle, Spinner, useToast } from "../components/ui";
+import { Select, type SelectOption } from "../components/Select";
+import { achievementIcon, CategoryIcon } from "../components/icons";
+import { Check, Flame, HeartPulse, PencilLine, Plus, Target } from "lucide-react";
 
 export function Goals() {
   const [goals, setGoals] = useState<GoalStatus[] | null>(null);
@@ -31,7 +34,7 @@ export function Goals() {
         subtitle="Targets that measure themselves from your timeline and health data, plus a few you tick off by hand."
         actions={
           <button className="btn-primary" onClick={() => setForm({ open: true, editing: null })}>
-            + New goal
+            <Plus className="h-4 w-4" /> New goal
           </button>
         }
       />
@@ -42,7 +45,7 @@ export function Goals() {
         </div>
       ) : goals.length === 0 ? (
         <Empty
-          icon="🎯"
+          icon={Target}
           title="No goals yet"
           body="Try “8,000 steps daily” measured from Apple Health, or “3 workouts weekly” counted from your timeline."
           action={
@@ -52,13 +55,13 @@ export function Goals() {
           }
         />
       ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
           {goals.map((g) => (
             <motion.div key={g.goal.id} layout initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
               <Card className="flex h-full flex-col p-5">
                 <div className="flex items-start gap-4">
                   <Ring percent={g.percent} size={56} stroke={5}>
-                    {g.complete ? "✓" : `${Math.round(g.percent * 100)}%`}
+                    {g.complete ? <Check className="h-5 w-5" strokeWidth={2.5} /> : `${Math.round(g.percent * 100)}%`}
                   </Ring>
                   <div className="min-w-0 flex-1">
                     <div className="truncate font-semibold">{g.goal.title}</div>
@@ -76,11 +79,19 @@ export function Goals() {
                 </div>
                 {g.goal.description && <p className="mt-3 text-sm text-ink-2">{g.goal.description}</p>}
                 <div className="mt-auto flex items-center justify-between pt-4">
-                  <span className="text-xs text-ink-3">{g.streak > 0 ? `🔥 ${g.streak} ${g.goal.cadence === "once" ? "" : "in a row"}` : "no streak yet"}</span>
+                  <span className="inline-flex items-center gap-1 text-xs text-ink-3">
+                    {g.streak > 0 ? (
+                      <>
+                        <Flame className="h-3.5 w-3.5" /> {g.streak} {g.goal.cadence === "once" ? "" : "in a row"}
+                      </>
+                    ) : (
+                      "no streak yet"
+                    )}
+                  </span>
                   <div className="flex gap-1">
                     {g.goal.metric === "manual" && (
                       <button className="btn-outline h-8 px-3 text-xs" onClick={() => setProgressFor(g)}>
-                        + Progress
+                        <Plus className="h-3.5 w-3.5" /> Progress
                       </button>
                     )}
                     <button className="btn-ghost h-8 px-3 text-xs" onClick={() => setForm({ open: true, editing: g })}>
@@ -96,12 +107,16 @@ export function Goals() {
 
       <div className="mt-10">
         <SectionTitle aside={ach && <span className="text-xs text-ink-3">{unlocked} / {ach.length} unlocked</span>}>Achievements</SectionTitle>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-          {(ach ?? []).map((a, i) => (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6">
+          {(ach ?? []).map((a, i) => {
+            const AIcon = achievementIcon(a.icon);
+            return (
             <motion.div key={a.code} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }}>
               <Card className={`p-4 ${a.unlockedAt ? "" : "opacity-70"}`}>
                 <div className="flex items-center gap-3">
-                  <div className={`grid h-11 w-11 shrink-0 place-items-center rounded-2xl text-xl ${a.unlockedAt ? "bg-ink text-paper" : "bg-paper-3 grayscale"}`}>{a.icon}</div>
+                  <div className={`grid h-11 w-11 shrink-0 place-items-center rounded-2xl ${a.unlockedAt ? "bg-ink text-paper" : "bg-paper-3 text-ink-3"}`}>
+                    <AIcon className="h-5 w-5" strokeWidth={1.8} />
+                  </div>
                   <div className="min-w-0">
                     <div className="truncate text-sm font-semibold">{a.title}</div>
                     <div className="truncate text-xs text-ink-3">{a.description}</div>
@@ -113,7 +128,8 @@ export function Goals() {
                 <div className="mt-1 text-[11px] text-ink-3">{a.unlockedAt ? `Unlocked ${new Date(a.unlockedAt).toLocaleDateString()}` : `${Math.round(a.progress * 100)}%`}</div>
               </Card>
             </motion.div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
@@ -137,6 +153,24 @@ export function Goals() {
     </div>
   );
 }
+
+const METRIC_OPTIONS: SelectOption[] = [
+  { value: "manual", label: "Manual", hint: "I log progress myself", icon: <PencilLine className="h-4 w-4" /> },
+  ...EVENT_CATEGORIES.map((c) => ({
+    value: `events:${c}`,
+    label: `${EVENT_CATEGORY_META[c].label} events`,
+    hint: "Counted from your timeline",
+    group: "Timeline",
+    icon: <CategoryIcon category={c} />,
+  })),
+  ...Object.entries(HEALTH_TYPE_META).map(([k, m]) => ({
+    value: `health:${k}`,
+    label: m.label,
+    hint: m.unit,
+    group: "Apple Health",
+    icon: <HeartPulse className="h-4 w-4" />,
+  })),
+];
 
 function metricLabel(metric: string): string {
   if (metric === "manual") return "logged by hand";
@@ -202,23 +236,7 @@ function GoalForm({ open, editing, onClose, onSaved }: { open: boolean; editing:
           <input className="field" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="8,000 steps" required autoFocus />
         </Field>
         <Field label="Measured by">
-          <select className="field" value={metric} onChange={(e) => pickMetric(e.target.value)}>
-            <option value="manual">Manual — I log progress myself</option>
-            <optgroup label="Count of events on the timeline">
-              {EVENT_CATEGORIES.map((c) => (
-                <option key={c} value={`events:${c}`}>
-                  {EVENT_CATEGORY_META[c].icon} {EVENT_CATEGORY_META[c].label} events
-                </option>
-              ))}
-            </optgroup>
-            <optgroup label="Apple Health">
-              {Object.entries(HEALTH_TYPE_META).map(([k, m]) => (
-                <option key={k} value={`health:${k}`}>
-                  {m.label} ({m.unit})
-                </option>
-              ))}
-            </optgroup>
-          </select>
+          <Select value={metric} onChange={pickMetric} options={METRIC_OPTIONS} searchable />
         </Field>
         <div className="grid grid-cols-3 gap-3">
           <Field label="Target">
@@ -228,13 +246,7 @@ function GoalForm({ open, editing, onClose, onSaved }: { open: boolean; editing:
             <input className="field" value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="steps" />
           </Field>
           <Field label="Cadence">
-            <select className="field" value={cadence} onChange={(e) => setCadence(e.target.value as GoalInput["cadence"])}>
-              {GOAL_CADENCES.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
+            <Select value={cadence} onChange={(v) => setCadence(v)} options={GOAL_CADENCES.map((c) => ({ value: c, label: c[0].toUpperCase() + c.slice(1) }))} />
           </Field>
         </div>
         <Field label="Starts on">

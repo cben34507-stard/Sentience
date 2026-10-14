@@ -5,9 +5,10 @@ import { eventsSince, upsertEvent } from "./events.js";
 import { factsSince, getProfile, upsertFact } from "./profile.js";
 import { goalsSince, progressSince, upsertGoal, upsertProgress } from "./goals.js";
 import { insertSamplesBulk, insertWorkoutsBulk } from "./health.js";
+import { labsSince, upsertLab } from "./labs.js";
 
 export interface SyncResult extends SyncPull {
-  applied: { events: number; goals: number; goalProgress: number; facts: number; healthSamples: number; healthWorkouts: number };
+  applied: { events: number; goals: number; goalProgress: number; facts: number; labResults: number; healthSamples: number; healthWorkouts: number; healthSkipped: number };
 }
 
 /**
@@ -28,6 +29,7 @@ export function sync(db: DB, push: SyncPush): SyncResult {
     for (const g of push.goals) upsertGoal(db, g);
     for (const p of push.goalProgress) upsertProgress(db, p);
     for (const f of push.facts) upsertFact(db, f);
+    for (const l of push.labResults) upsertLab(db, l);
     const healthSamples = insertSamplesBulk(
       db,
       push.healthSamples.map((s) => ({ ...s, sourceName: s.sourceName || "iOS", device: s.device ?? "sentience-ios" })),
@@ -38,8 +40,10 @@ export function sync(db: DB, push: SyncPush): SyncResult {
       goals: push.goals.length,
       goalProgress: push.goalProgress.length,
       facts: push.facts.length,
+      labResults: push.labResults.length,
       healthSamples,
       healthWorkouts,
+      healthSkipped: push.healthSamples.length - healthSamples,
     };
   })();
 
@@ -50,6 +54,7 @@ export function sync(db: DB, push: SyncPush): SyncResult {
     goals: goalsSince(db, push.since),
     goalProgress: progressSince(db, push.since),
     facts: factsSince(db, push.since),
+    labResults: labsSince(db, push.since),
     profile: getProfile(db),
     applied,
   };

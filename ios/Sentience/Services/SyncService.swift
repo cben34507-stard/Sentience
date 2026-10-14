@@ -31,6 +31,37 @@ final class SyncService: ObservableObject {
         set { UserDefaults.standard.set(newValue, forKey: AppSettings.healthEnabledKey) }
     }
 
+    var writeLabsToHealth: Bool {
+        get { UserDefaults.standard.bool(forKey: AppSettings.writeLabsKey) }
+        set { UserDefaults.standard.set(newValue, forKey: AppSettings.writeLabsKey) }
+    }
+
+    /// Pushes any test results whose latest version isn't in Apple Health yet.
+    /// Runs after every sync, and right after a result is added on the phone.
+    func writePendingLabsToHealth() async {
+        guard writeLabsToHealth, HealthKitService.available, let container else { return }
+        let ctx = ModelContext(container)
+        guard let all = try? ctx.fetch(FetchDescriptor<LocalLabResult>()) else { return }
+        let mappable = all.filter { $0.preset?.healthKitType != nil }
+        for r in mappable where r.healthKitVersion < r.syncVersion {
+            // Blood pressure is written as one reading: find the other half taken at the same moment.
+            var partner: LocalLabResult?
+            if r.testKey == "bp_sys" || r.testKey == "bp_dia" {
+                let other = r.testKey == "bp_sys" ? "bp_dia" : "bp_sys"
+                partner = mappable.first { $0.testKey == other && $0.deletedAt == nil && abs($0.takenAt.timeIntervalSince(r.takenAt)) < 60 }
+            }
+            switch await HealthKitService.shared.write(r, partner: partner) {
+            case .written, .deleted, .skipped:
+                r.healthKitVersion = r.syncVersion
+                r.healthKitError = nil
+                if let partner { partner.healthKitVersion = partner.syncVersion }
+            case let .failed(msg):
+                r.healthKitError = msg
+            }
+        }
+        try? ctx.save()
+    }
+
     func syncIfPossible() async {
         guard APIClient.configured != nil else { return }
         await sync()
@@ -49,6 +80,7 @@ final class SyncService: ObservableObject {
             let dirtyEvents = try ctx.fetch(FetchDescriptor<LocalEvent>(predicate: #Predicate { $0.dirty }))
             let dirtyGoals = try ctx.fetch(FetchDescriptor<LocalGoal>(predicate: #Predicate { $0.dirty }))
             let dirtyProgress = try ctx.fetch(FetchDescriptor<LocalGoalProgress>(predicate: #Predicate { $0.dirty }))
+            let dirtyLabs = try ctx.fetch(FetchDescriptor<LocalLabResult>(predicate: #Predicate { $0.dirty }))
 
             // 2. New HealthKit samples (if enabled).
             var samples: [HealthSampleDTO] = []
@@ -68,6 +100,7 @@ final class SyncService: ObservableObject {
                 events: dirtyEvents.map(Self.dto),
                 goals: dirtyGoals.map(Self.dto),
                 goalProgress: dirtyProgress.map(Self.dto),
+                labResults: dirtyLabs.map(Self.dto),
                 healthSamples: samples,
                 healthWorkouts: workouts
             )
@@ -79,9 +112,11 @@ final class SyncService: ObservableObject {
             for e in pull.events { try Self.apply(e, ctx: ctx) }
             for g in pull.goals { try Self.apply(g, ctx: ctx) }
             for p in pull.goalProgress { try Self.apply(p, ctx: ctx) }
+            for l in pull.labResults { try Self.apply(l, ctx: ctx) }
             for e in dirtyEvents { e.dirty = false }
             for g in dirtyGoals { g.dirty = false }
             for p in dirtyProgress { p.dirty = false }
+            for l in dirtyLabs { l.dirty = false }
             try ctx.save()
 
             HealthKitService.shared.commit(anchors: anchors)
@@ -91,7 +126,10 @@ final class SyncService: ObservableObject {
             UserDefaults.standard.set(lastSync, forKey: AppSettings.lastSyncKey)
             profile = pull.profile
             let a = pull.applied
-            lastSummary = "↑ \(dirtyEvents.count) events, \(samples.count) health samples · ↓ \(pull.events.count) events" + (a.map { " · server kept \($0.healthSamples) new samples" } ?? "")
+            var summary = "Sent \(dirtyEvents.count) events, \(dirtyLabs.count) test results, \(samples.count) health samples. Received \(pull.events.count) events, \(pull.labResults.count) test results."
+            if let a { summary += " Server kept \(a.healthSamples) new samples" + ((a.healthSkipped ?? 0) > 0 ? " and skipped \(a.healthSkipped!) already on record." : ".") }
+            lastSummary = summary
+            await writePendingLabsToHealth()
         } catch {
             lastError = error.localizedDescription
         }
@@ -127,6 +165,39 @@ final class SyncService: ObservableObject {
 
     static func dto(_ p: LocalGoalProgress) -> GoalProgressDTO {
         GoalProgressDTO(id: p.id, goalId: p.goalId, date: p.date, amount: p.amount, note: p.note, createdAt: ISO.string(p.createdAt))
+    }
+
+    static func dto(_ l: LocalLabResult) -> LabResultDTO {
+        LabResultDTO(
+            id: l.id, testKey: l.testKey, name: l.name, panel: l.panel, value: l.value, valueText: l.valueText, unit: l.unit,
+            refLow: l.refLow, refHigh: l.refHigh, takenAt: ISO.string(l.takenAt), lab: l.lab, notes: l.notes,
+            createdAt: ISO.string(l.createdAt), updatedAt: ISO.string(l.updatedAt), deletedAt: l.deletedAt.map(ISO.string)
+        )
+    }
+
+    static func apply(_ l: LabResultDTO, ctx: ModelContext) throws {
+        let id = l.id
+        let updated = ISO.date(l.updatedAt) ?? Date()
+        let existing = try ctx.fetch(FetchDescriptor<LocalLabResult>(predicate: #Predicate { $0.id == id })).first
+        if let existing, existing.dirty && existing.updatedAt > updated { return }
+        let row = existing ?? LocalLabResult(preset: LabPreset.byKey[l.testKey], name: l.name, value: l.value, unit: l.unit, refLow: l.refLow, refHigh: l.refHigh, takenAt: ISO.date(l.takenAt) ?? Date())
+        if existing == nil { row.id = l.id }
+        row.testKey = l.testKey
+        row.name = l.name
+        row.panel = l.panel
+        row.value = l.value
+        row.valueText = l.valueText
+        row.unit = l.unit
+        row.refLow = l.refLow
+        row.refHigh = l.refHigh
+        row.takenAt = ISO.date(l.takenAt) ?? row.takenAt
+        row.lab = l.lab
+        row.notes = l.notes
+        row.createdAt = ISO.date(l.createdAt) ?? row.createdAt
+        row.updatedAt = updated
+        row.deletedAt = l.deletedAt.flatMap(ISO.date)
+        row.dirty = false
+        if existing == nil { ctx.insert(row) }
     }
 
     static func apply(_ e: EventDTO, ctx: ModelContext) throws {

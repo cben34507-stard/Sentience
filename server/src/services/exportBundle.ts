@@ -3,6 +3,7 @@ import {
   addDays,
   daysBetween,
   EVENT_CATEGORY_META,
+  labFlag,
   localHour,
   type DailyHealthSummary,
   type Event,
@@ -12,6 +13,8 @@ import { getProfile, listFacts } from "./profile.js";
 import { listEventsForDay } from "./events.js";
 import { dailySummary, hourlySeries, T } from "./health.js";
 import { allGoalStatuses } from "./goals.js";
+import { listLabs } from "./labs.js";
+import { dayRange } from "../lib/time.js";
 
 export function buildBundle(db: DB, from: string, to: string): ExportBundle {
   const profile = getProfile(db);
@@ -34,6 +37,8 @@ export function buildBundle(db: DB, from: string, to: string): ExportBundle {
     profile,
     facts: listFacts(db),
     goals: allGoalStatuses(db, to, tz),
+    // All test results up to the end of the range: trends matter more than the window.
+    labResults: listLabs(db, "1970-01-01T00:00:00Z", dayRange(to, tz).end),
     days,
   };
 }
@@ -57,7 +62,7 @@ function age(dob: string | null | undefined): string {
 function eventLine(e: Event, tz: string): string {
   const meta = EVENT_CATEGORY_META[e.category];
   const time = fmtTime(e.startAt, tz) + (e.endAt ? `–${fmtTime(e.endAt, tz)}` : "");
-  const parts = [`- **${time}** ${meta.icon} ${meta.label}: ${e.title}`];
+  const parts = [`- **${time}** ${meta.label}: ${e.title}`];
   if (e.rating != null) parts.push(`(rating ${e.rating}/10)`);
   if (e.tags.length) parts.push(`[${e.tags.join(", ")}]`);
   const extras = Object.entries(e.data ?? {})
@@ -108,7 +113,7 @@ export function bundleToMarkdown(b: ExportBundle): string {
   const tz = b.profile.timezone;
   const p = b.profile;
   const out: string[] = [];
-  out.push(`# Sentience export — ${b.range.from} → ${b.range.to} (${b.range.days} day${b.range.days === 1 ? "" : "s"})`);
+  out.push(`# Sentience export: ${b.range.from} → ${b.range.to} (${b.range.days} day${b.range.days === 1 ? "" : "s"})`);
   out.push(`Generated ${b.generatedAt}. Times are local to ${tz}.`);
   out.push("");
   out.push(`## About me`);
@@ -131,8 +136,20 @@ export function bundleToMarkdown(b: ExportBundle): string {
     out.push(`## Goals (status at ${b.range.to})`);
     for (const g of b.goals) {
       out.push(
-        `- ${g.complete ? "✅" : "⬜"} **${g.goal.title}** — ${g.current}/${g.target}${g.goal.unit ? ` ${g.goal.unit}` : ""} this ${g.goal.cadence} period (${Math.round(g.percent * 100)}%), streak ${g.streak}`,
+        `- [${g.complete ? "x" : " "}] **${g.goal.title}** — ${g.current}/${g.target}${g.goal.unit ? ` ${g.goal.unit}` : ""} this ${g.goal.cadence} period (${Math.round(g.percent * 100)}%), streak ${g.streak}`,
       );
+    }
+  }
+  if (b.labResults.length) {
+    out.push("");
+    out.push(`## Test results`);
+    out.push(`| taken | test | result | range | flag | lab |`);
+    out.push(`|---|---|---|---|---|---|`);
+    for (const r of [...b.labResults].reverse()) {
+      const flag = labFlag(r);
+      const range = r.refLow != null || r.refHigh != null ? `${r.refLow ?? ""}–${r.refHigh ?? ""}` : "—";
+      const val = r.value != null ? `${r.value} ${r.unit}` : r.valueText ?? "—";
+      out.push(`| ${r.takenAt.slice(0, 10)} | ${r.name} | ${val} | ${range} | ${flag === "unknown" ? "" : flag.toUpperCase()} | ${r.lab} |`);
     }
   }
   out.push("");

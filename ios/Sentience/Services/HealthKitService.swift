@@ -23,11 +23,30 @@ final class HealthKitService {
         (.respiratoryRate, HKUnit.count().unitDivided(by: .minute()), "count/min"),
     ]
 
-    func requestAuthorization() async throws {
+    /// Types Sentience may write test results into.
+    static var writableTypes: Set<HKSampleType> {
+        var set = Set<HKSampleType>()
+        for p in LabPreset.all {
+            if let raw = p.healthKitType, let t = HKObjectType.quantityType(forIdentifier: HKQuantityTypeIdentifier(rawValue: raw)) { set.insert(t) }
+        }
+        set.insert(HKCorrelationType(.bloodPressure))
+        return set
+    }
+
+    func requestAuthorization(write: Bool = false) async throws {
         var read: Set<HKObjectType> = Set(quantityTypes.compactMap { HKObjectType.quantityType(forIdentifier: $0.0) })
         if let sleep = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) { read.insert(sleep) }
         read.insert(HKObjectType.workoutType())
-        try await store.requestAuthorization(toShare: [], read: read)
+        // Correlations can't be requested for sharing; their member types can.
+        let share = write ? Self.writableTypes.filter { !($0 is HKCorrelationType) } : []
+        try await store.requestAuthorization(toShare: share, read: read)
+    }
+
+    /// Our own writes come back through anchored queries; never ship them as new health data.
+    private static func isOwn(_ s: HKSample) -> Bool {
+        if s.sourceRevision.source.bundleIdentifier == Bundle.main.bundleIdentifier { return true }
+        if let id = s.metadata?[HKMetadataKeySyncIdentifier] as? String, id.hasPrefix("sentience-") { return true }
+        return false
     }
 
     /// Returns new samples since the last anchor for each type; call `commit`
@@ -40,7 +59,7 @@ final class HealthKitService {
         for (id, unit, unitName) in quantityTypes {
             guard let type = HKObjectType.quantityType(forIdentifier: id) else { continue }
             let (new, anchor) = try await anchored(type: type, key: id.rawValue, limit: limitPerType)
-            for s in new.compactMap({ $0 as? HKQuantitySample }) {
+            for s in new.compactMap({ $0 as? HKQuantitySample }) where !Self.isOwn(s) {
                 samples.append(HealthSampleDTO(
                     id: s.uuid.uuidString.lowercased(),
                     type: id.rawValue,
@@ -58,7 +77,7 @@ final class HealthKitService {
 
         if let sleep = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) {
             let (new, anchor) = try await anchored(type: sleep, key: "sleep", limit: limitPerType)
-            for s in new.compactMap({ $0 as? HKCategorySample }) {
+            for s in new.compactMap({ $0 as? HKCategorySample }) where !Self.isOwn(s) {
                 samples.append(HealthSampleDTO(
                     id: s.uuid.uuidString.lowercased(),
                     type: "HKCategoryTypeIdentifierSleepAnalysis",
@@ -75,7 +94,7 @@ final class HealthKitService {
         }
 
         let (newWorkouts, wAnchor) = try await anchored(type: HKObjectType.workoutType(), key: "workout", limit: limitPerType)
-        for w in newWorkouts.compactMap({ $0 as? HKWorkout }) {
+        for w in newWorkouts.compactMap({ $0 as? HKWorkout }) where !Self.isOwn(w) {
             let energy = w.statistics(for: HKQuantityType(.activeEnergyBurned))?.sumQuantity()?.doubleValue(for: .kilocalorie())
             let distance = w.statistics(for: HKQuantityType(.distanceWalkingRunning))?.sumQuantity()?.doubleValue(for: .meterUnit(with: .kilo))
                 ?? w.statistics(for: HKQuantityType(.distanceCycling))?.sumQuantity()?.doubleValue(for: .meterUnit(with: .kilo))
@@ -93,6 +112,66 @@ final class HealthKitService {
         anchors["workout"] = wAnchor
 
         return (samples, workouts, anchors)
+    }
+
+    // MARK: - Writing test results
+
+    enum WriteOutcome { case written, deleted, skipped, failed(String) }
+
+    /// Writes (or replaces, or removes) one test result in Apple Health.
+    /// HealthKit replaces a sample carrying the same HKMetadataKeySyncIdentifier
+    /// when the new HKMetadataKeySyncVersion is higher, so re-syncing and editing
+    /// never produce duplicates.
+    func write(_ r: LocalLabResult, partner: LocalLabResult? = nil) async -> WriteOutcome {
+        guard let preset = r.preset, let raw = preset.healthKitType, let unitString = preset.healthKitUnit else { return .skipped }
+        let typeId = HKQuantityTypeIdentifier(rawValue: raw)
+        let isBP = typeId == .bloodPressureSystolic || typeId == .bloodPressureDiastolic
+        let syncId = isBP ? "sentience-bp-\(Int(r.takenAt.timeIntervalSince1970))" : "sentience-lab-\(r.id)"
+
+        if r.deletedAt != nil || r.value == nil {
+            do {
+                try await deleteSamples(syncId: syncId, types: isBP ? [HKCorrelationType(.bloodPressure), HKQuantityType(.bloodPressureSystolic), HKQuantityType(.bloodPressureDiastolic)] : [HKQuantityType(typeId)])
+                return .deleted
+            } catch { return .failed(error.localizedDescription) }
+        }
+
+        let version = max(r.syncVersion, partner?.syncVersion ?? 0)
+        let meta: [String: Any] = [
+            HKMetadataKeySyncIdentifier: syncId,
+            HKMetadataKeySyncVersion: version,
+            HKMetadataKeyWasUserEntered: true,
+            HKMetadataKeyExternalUUID: r.id,
+        ]
+        func quantity(_ id: HKQuantityTypeIdentifier, _ unit: String, _ value: Double) -> HKQuantitySample {
+            // HealthKit stores percentages as fractions (0.97 for 97%).
+            let v = unit == "%" ? value / 100 : value
+            return HKQuantitySample(type: HKQuantityType(id), quantity: HKQuantity(unit: HKUnit(from: unit), doubleValue: v), start: r.takenAt, end: r.takenAt, metadata: meta)
+        }
+
+        do {
+            if isBP, let partner, let pv = partner.value, let v = r.value {
+                let (sys, dia) = typeId == .bloodPressureSystolic ? (v, pv) : (pv, v)
+                let objects: Set<HKSample> = [quantity(.bloodPressureSystolic, "mmHg", sys), quantity(.bloodPressureDiastolic, "mmHg", dia)]
+                let corr = HKCorrelation(type: HKCorrelationType(.bloodPressure), start: r.takenAt, end: r.takenAt, objects: objects, metadata: meta)
+                try await store.save(corr)
+            } else {
+                try await store.save(quantity(typeId, unitString, r.value!))
+            }
+            return .written
+        } catch {
+            return .failed(error.localizedDescription)
+        }
+    }
+
+    private func deleteSamples(syncId: String, types: [HKObjectType]) async throws {
+        let predicate = HKQuery.predicateForObjects(withMetadataKey: HKMetadataKeySyncIdentifier, allowedValues: [syncId])
+        for t in types {
+            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+                store.deleteObjects(of: t, predicate: predicate) { _, _, error in
+                    if let error { cont.resume(throwing: error) } else { cont.resume() }
+                }
+            }
+        }
     }
 
     func commit(anchors: [String: HKQueryAnchor]) {

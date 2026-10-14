@@ -1,5 +1,6 @@
 import type { DB } from "../lib/db.js";
-import { nextRev } from "../lib/db.js";
+import { nextRev, toEpochS } from "../lib/db.js";
+import { cumulativeSum, isRateType } from "./health.js";
 import { newId } from "../lib/ids.js";
 import { dayRange } from "../lib/time.js";
 import { addDays, daysBetween, type Goal, type GoalInput, type GoalProgress, type GoalStatus } from "@sentience/shared";
@@ -194,18 +195,20 @@ export function measure(db: DB, goal: Goal, start: string, end: string, tz: stri
     const category = metric.slice("events:".length);
     const row = db
       .prepare(
-        `SELECT COUNT(*) c FROM events WHERE deleted_at IS NULL AND category = ? AND start_at >= ? AND start_at < ?`,
+        `SELECT COUNT(*) c FROM events WHERE deleted_at IS NULL AND category = ? AND start_s >= ? AND start_s < ?`,
       )
-      .get(category, from, to) as { c: number };
+      .get(category, toEpochS(from), toEpochS(to)) as { c: number };
     return row.c;
   }
   if (metric.startsWith("health:")) {
     const type = metric.slice("health:".length);
-    const fn = /HeartRate|Variability|OxygenSaturation|BodyMass|VO2Max|RespiratoryRate/.test(type) ? "AVG" : "SUM";
-    const row = db
-      .prepare(`SELECT ${fn}(value) v FROM health_samples WHERE type = ? AND start_at >= ? AND start_at < ?`)
-      .get(type, from, to) as { v: number | null };
-    return row.v ?? 0;
+    if (isRateType(type)) {
+      const row = db
+        .prepare(`SELECT AVG(value) v FROM health_samples WHERE type = ? AND start_s >= ? AND start_s < ?`)
+        .get(type, toEpochS(from), toEpochS(to)) as { v: number | null };
+      return row.v ?? 0;
+    }
+    return cumulativeSum(db, type, from, to) ?? 0;
   }
   return 0;
 }

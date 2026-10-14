@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  server-web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run typecheck
+      - run: npm test
+
+  ios:
+    # macOS minutes cost more on private repos, so this only runs when the app changes.
+    if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'ios/') || contains(join(github.event.commits.*.added, ' '), 'ios/') || github.event_name == 'pull_request'
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate project
+        working-directory: ios
+        run: xcodegen generate
+      - name: Build for simulator (compile check)
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild -project Sentience.xcodeproj -scheme Sentience \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -configuration Debug CODE_SIGNING_ALLOWED=NO build | tail -n 80
+      - name: Build unsigned device archive
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild -project Sentience.xcodeproj -scheme Sentience -sdk iphoneos \
+            -configuration Release -archivePath build/Sentience.xcarchive \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO archive | tail -n 40
+          mkdir -p build/Payload
+          cp -R build/Sentience.xcarchive/Products/Applications/Sentience.app build/Payload/
+          cd build && zip -qr Sentience-unsigned.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Sentience-unsigned-ipa
+          path: ios/build/Sentience-unsigned.ipa
+          retention-days: 14

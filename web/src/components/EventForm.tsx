@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { Event, EventCategory, EventInput } from "@sentience/shared";
 import { EVENT_CATEGORIES, EVENT_CATEGORY_META } from "@sentience/shared";
 import { Field, Modal } from "./ui";
+import { CategoryIcon } from "./icons";
 import { fromInputDateTime, toInputDateTime } from "../lib/date";
 
 interface Props {
@@ -96,7 +97,7 @@ export function EventForm({ open, onClose, onSave, onDelete, initial }: Props) {
                 onClick={() => setCategory(c)}
                 className={`chip ${category === c ? "!border-ink !bg-ink !text-paper" : ""}`}
               >
-                <span aria-hidden>{EVENT_CATEGORY_META[c].icon}</span>
+                <CategoryIcon category={c} className="h-3.5 w-3.5" />
                 {EVENT_CATEGORY_META[c].label}
               </button>
             ))}

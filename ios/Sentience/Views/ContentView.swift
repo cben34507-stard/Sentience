@@ -8,6 +8,8 @@ struct ContentView: View {
         TabView {
             TodayView()
                 .tabItem { Label("Today", systemImage: "clock") }
+            TestsView()
+                .tabItem { Label("Tests", systemImage: "flask") }
             GoalsView()
                 .tabItem { Label("Goals", systemImage: "target") }
             SettingsView()

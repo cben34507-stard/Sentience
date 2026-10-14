@@ -20,13 +20,15 @@ enum EventCategory: String, CaseIterable, Codable, Identifiable {
         }
     }
 
-    var icon: String {
+    /// SF Symbol for this category.
+    var symbol: String {
         switch self {
-        case .meal: "🍽️"; case .drink: "🥤"; case .supplement: "💊"; case .medication: "🩺"
-        case .hygiene: "🪥"; case .sleep: "🌙"; case .wake: "☀️"; case .movement: "🚶"
-        case .workout: "🏋️"; case .work: "💼"; case .study: "📚"; case .social: "👥"
-        case .leisure: "🎮"; case .mood: "🧠"; case .symptom: "🤒"; case .location: "📍"
-        case .chore: "🧺"; case .note: "📝"
+        case .meal: "fork.knife"; case .drink: "cup.and.saucer"; case .supplement: "pills"
+        case .medication: "cross.case"; case .hygiene: "shower"; case .sleep: "moon.zzz"
+        case .wake: "sunrise"; case .movement: "figure.walk"; case .workout: "dumbbell"
+        case .work: "briefcase"; case .study: "book"; case .social: "person.2"
+        case .leisure: "gamecontroller"; case .mood: "brain.head.profile"; case .symptom: "thermometer.medium"
+        case .location: "mappin.and.ellipse"; case .chore: "basket"; case .note: "note.text"
         }
     }
 
@@ -171,7 +173,86 @@ final class LocalGoalProgress {
     }
 }
 
+@Model
+final class LocalLabResult {
+    @Attribute(.unique) var id: String
+    var testKey: String
+    var name: String
+    var panel: String
+    var value: Double?
+    var valueText: String?
+    var unit: String
+    var refLow: Double?
+    var refHigh: Double?
+    var takenAt: Date
+    var lab: String
+    var notes: String
+    var createdAt: Date
+    var updatedAt: Date
+    var deletedAt: Date?
+    var dirty: Bool
+    /// SyncVersion last written to Apple Health (0 = never). Local only.
+    var healthKitVersion: Int = 0
+    var healthKitError: String?
+
+    init(preset: LabPreset?, name: String, value: Double?, valueText: String? = nil, unit: String, refLow: Double?, refHigh: Double?, takenAt: Date, lab: String = "", notes: String = "") {
+        self.id = UUID().uuidString.lowercased()
+        self.testKey = preset?.key ?? "custom"
+        self.name = name
+        self.panel = preset?.panel ?? "Other"
+        self.value = value
+        self.valueText = valueText
+        self.unit = unit
+        self.refLow = refLow
+        self.refHigh = refHigh
+        self.takenAt = takenAt
+        self.lab = lab
+        self.notes = notes
+        let now = Date()
+        self.createdAt = now
+        self.updatedAt = now
+        self.deletedAt = nil
+        self.dirty = true
+    }
+
+    var preset: LabPreset? { LabPreset.byKey[testKey] }
+
+    /// Monotonic version for HealthKit's sync-identifier replacement.
+    var syncVersion: Int { Int(updatedAt.timeIntervalSince1970 * 1000) }
+
+    enum Flag { case low, normal, high, unknown }
+    var flag: Flag {
+        guard let v = value, refLow != nil || refHigh != nil else { return .unknown }
+        if let lo = refLow, v < lo { return .low }
+        if let hi = refHigh, v > hi { return .high }
+        return .normal
+    }
+
+    func touch() {
+        updatedAt = Date()
+        dirty = true
+    }
+}
+
 // MARK: - Wire DTOs (match the zod schemas in packages/shared)
+
+struct LabResultDTO: Codable {
+    var id: String
+    var testKey: String
+    var name: String
+    var panel: String
+    var value: Double?
+    var valueText: String?
+    var unit: String
+    var refLow: Double?
+    var refHigh: Double?
+    var takenAt: String
+    var lab: String
+    var notes: String
+    var createdAt: String
+    var updatedAt: String
+    var deletedAt: String?
+}
 
 struct EventDTO: Codable {
     var id: String
@@ -256,6 +337,7 @@ struct SyncPush: Codable {
     var goals: [GoalDTO]
     var goalProgress: [GoalProgressDTO]
     var facts: [AnyCodable] = []
+    var labResults: [LabResultDTO]
     var healthSamples: [HealthSampleDTO]
     var healthWorkouts: [HealthWorkoutDTO]
 }
@@ -266,6 +348,7 @@ struct SyncPull: Codable {
     var events: [EventDTO]
     var goals: [GoalDTO]
     var goalProgress: [GoalProgressDTO]
+    var labResults: [LabResultDTO]
     var profile: ProfileDTO
     var applied: Applied?
 
@@ -274,8 +357,10 @@ struct SyncPull: Codable {
         var goals: Int
         var goalProgress: Int
         var facts: Int
+        var labResults: Int?
         var healthSamples: Int
         var healthWorkouts: Int
+        var healthSkipped: Int?
     }
 }
 

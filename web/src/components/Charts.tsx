@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 /** Measures the rendered width of a container so SVG text stays undistorted. */
-function useWidth<T extends HTMLElement>(fallback = 600): [React.RefObject<T>, number] {
+export function useWidth<T extends HTMLElement>(fallback = 600): [React.RefObject<T>, number] {
   const ref = useRef<T>(null);
   const [w, setW] = useState(fallback);
   useEffect(() => {
@@ -168,7 +168,7 @@ function nearestEvent(events: Event[], t: string): string | null {
       best = e;
     }
   }
-  return best ? `${EVENT_CATEGORY_META[best.category].icon} ${best.title}` : null;
+  return best ? `${EVENT_CATEGORY_META[best.category].label} · ${best.title}` : null;
 }
 
 /** Steps per hour as thin rounded bars. */
