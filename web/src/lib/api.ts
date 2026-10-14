@@ -9,6 +9,9 @@ import type {
   GoalStatus,
   LabResult,
   LabResultInput,
+  MealEstimate,
+  NutritionDay,
+  Insight,
   Profile,
   ProfileInput,
 } from "@sentience/shared";
@@ -22,8 +25,15 @@ export class ApiError extends Error {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
     ...init,
-    headers: { ...(init?.body && !(init.body instanceof FormData) ? { "content-type": "application/json" } : {}), ...(init?.headers ?? {}) },
+    credentials: "same-origin",
+    headers: {
+      // Required on every write: cross-site pages can't set it without a CORS preflight the server never grants.
+      "x-sentience": "1",
+      ...(init?.body && !(init.body instanceof FormData) ? { "content-type": "application/json" } : {}),
+      ...(init?.headers ?? {}),
+    },
   });
+  if (res.status === 401 && !path.startsWith("/auth/")) window.dispatchEvent(new CustomEvent("sentience:unauthorized"));
   if (res.status === 204) return undefined as T;
   const text = await res.text();
   const body = text ? JSON.parse(text) : null;
@@ -46,6 +56,7 @@ export interface DayView {
   stepsByHour: (number | null)[];
   goals: GoalStatus[];
   labResults: LabResult[];
+  sleep: { startAt: string; endAt: string }[];
 }
 
 export interface TimelineDay {
@@ -109,11 +120,53 @@ export interface TypeStat {
   sources: number;
 }
 
+export interface SessionRow {
+  id: string;
+  kind: "browser" | "device";
+  name: string;
+  createdAt: string;
+  lastUsedAt: string;
+  expiresAt: string | null;
+  ip: string | null;
+  userAgent: string | null;
+  current: boolean;
+}
+export interface CheckupItem {
+  id: string;
+  ok: boolean | null;
+  title: string;
+  detail: string;
+  fix?: string;
+}
+
 export const api = {
+  auth: {
+    status: () => get<{ configured: boolean; authenticated: boolean; kind: string | null; https: boolean }>("/auth/status"),
+    setup: (code: string, password: string) => post<{ ok: true }>("/auth/setup", { code, password }),
+    login: (password: string) => post<{ ok: true }>("/auth/login", { password }),
+    logout: () => post<{ ok: true }>("/auth/logout", {}),
+    sessions: () => get<SessionRow[]>("/auth/sessions"),
+    revoke: (id: string) => del(`/auth/sessions/${id}`),
+    addDevice: (name: string) => post<{ id: string; name: string; token: string }>("/auth/devices", { name }),
+    changePassword: (current: string, next: string) => put<{ ok: true }>("/auth/password", { current, next }),
+  },
+  checkup: () => get<{ items: CheckupItem[]; dbKeyConfigured: boolean; tls: boolean }>("/security/checkup"),
+
   stats: () => get<Stats>("/stats"),
   day: (date: string) => get<DayView>(`/day?date=${date}`),
   overview: (from: string, to: string) => get<Overview>(`/overview?from=${from}&to=${to}`),
   timeline: (from: string, to: string) => get<{ from: string; to: string; timezone: string; days: TimelineDay[] }>(`/timeline?from=${from}&to=${to}`),
+
+  nutrition: (date: string) => get<NutritionDay>(`/nutrition?date=${date}`),
+  frequentMeals: () => get<{ title: string; data: Record<string, unknown>; count: number }[]>("/nutrition/frequent"),
+  insights: () => get<Insight[]>("/insights"),
+  ai: {
+    status: () => get<{ enabled: boolean; source: "env" | "settings" | null; model: string }>("/ai/status"),
+    setKey: (apiKey: string | null) => put<{ enabled: boolean; source: "env" | "settings" | null; model: string }>("/settings/ai", { apiKey }),
+    estimateMeal: (description: string, image?: { data: string; mediaType: "image/jpeg" | "image/png" | "image/webp" | "image/gif" }) =>
+      post<MealEstimate>("/ai/meal-estimate", { description, image }),
+    assess: (from: string, to: string) => post<{ markdown: string; model: string }>("/ai/assess", { from, to }),
+  },
 
   labs: {
     list: () => get<LabResult[]>("/labs"),

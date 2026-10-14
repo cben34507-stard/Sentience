@@ -200,6 +200,14 @@ export function measure(db: DB, goal: Goal, start: string, end: string, tz: stri
       .get(category, toEpochS(from), toEpochS(to)) as { c: number };
     return row.c;
   }
+  if (metric.startsWith("data:")) {
+    // Sum a number stored on events, e.g. data:water_ml or data:kcal.
+    const field = metric.slice("data:".length).replace(/[^a-z0-9_]/gi, "");
+    const row = db
+      .prepare(`SELECT COALESCE(SUM(CAST(json_extract(data, '$.' || ?) AS REAL)), 0) v FROM events WHERE deleted_at IS NULL AND start_s >= ? AND start_s < ?`)
+      .get(field, toEpochS(from), toEpochS(to)) as { v: number };
+    return row.v;
+  }
   if (metric.startsWith("health:")) {
     const type = metric.slice("health:".length);
     if (isRateType(type)) {

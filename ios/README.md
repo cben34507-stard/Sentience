@@ -20,7 +20,7 @@ Then in Xcode: pick your team under *Signing & Capabilities*, plug in your iPhon
 ## First run
 
 1. Start the server on the mini PC — it prints a `network http://192.168.x.x:4477` line.
-2. In the app: **Sync** tab → paste that URL → *Test connection*.
+2. On the web app: **Settings → Devices → Add device**, copy the token. In the app: **Sync** tab → paste the server URL and the token → *Test connection* ("Connected and signed in"). The token is kept in the Keychain.
 3. Toggle **Send Apple Health data** and allow the HealthKit prompts.
 4. Tap *Sync now*. From then on it syncs whenever the app comes to the foreground.
 

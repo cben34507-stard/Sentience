@@ -4,6 +4,7 @@ import { api, type ImportJob, type Stats, type TypeStat } from "../lib/api";
 import { fmtNum } from "../lib/date";
 import { Card, Empty, PageTitle, SectionTitle, Spinner, Stat, useToast } from "../components/ui";
 import { Copy, Inbox, ShieldCheck, Smartphone, Upload } from "lucide-react";
+import { Insights } from "../components/Insights";
 
 export function Health() {
   const [coverage, setCoverage] = useState<Stats["health"] | null>(null);
@@ -67,6 +68,12 @@ export function Health() {
           <Stat label="Sources" value={coverage?.sources?.length ?? 0} hint={coverage?.sources?.slice(0, 3).join(", ")} />
         </div>
       </Card>
+
+      {(coverage?.samples ?? 0) > 0 && (
+        <div className="mb-6">
+          <Insights />
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 2xl:grid-cols-3">
         <div className="space-y-6">

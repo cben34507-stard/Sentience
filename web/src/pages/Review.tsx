@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { CalendarRange, Download } from "lucide-react";
 import { Swimlane } from "../components/Swimlane";
+import { Insights } from "../components/Insights";
 import { Link } from "react-router-dom";
 import { api, type Overview, type TimelineDay } from "../lib/api";
 import { addDays, fmtDateShort, fmtNum, minutesToHm, todayLocal, weekday } from "../lib/date";
@@ -100,6 +101,10 @@ export function Review() {
           <Stat label="Workouts" value={totals.workouts} />
         </div>
       </Card>
+
+      <div className="mb-6">
+        <Insights from={from} to={to} />
+      </div>
 
       <Card className="mb-6 p-5">
         <SectionTitle aside={<span className="text-xs text-ink-3">hover any mark for details</span>}>Days as timelines</SectionTitle>

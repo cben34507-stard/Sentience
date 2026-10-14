@@ -9,6 +9,8 @@ import { api, type DayView } from "../lib/api";
 import { addDays, durationMin, fmtDateLong, fmtNum, fmtTime, minutesToHm, todayLocal, toLocalIso } from "../lib/date";
 import { Card, Empty, Ring, SectionTitle, Spinner, Stat, useToast } from "../components/ui";
 import { HeartRateChart, StepsChart } from "../components/Charts";
+import { DayStrand } from "../components/DayStrand";
+import { useTheme } from "../lib/theme";
 import { EventForm } from "../components/EventForm";
 
 const QUICK: { label: string; category: EventCategory; title: string; icon: LucideIcon }[] = [
@@ -37,6 +39,7 @@ export function Today() {
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState<{ open: boolean; initial: Partial<Event> | null }>({ open: false, initial: null });
   const toast = useToast();
+  const { isDark } = useTheme();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -123,6 +126,11 @@ export function Today() {
       </div>
 
       {error && <div className="mb-4 rounded-xl bg-bad/10 px-4 py-3 text-sm text-bad">{error} — is the server running?</div>}
+
+      {/* The day as a timeline: strands across 24 hours, events branching out */}
+      <div className="-mx-4 mb-6 sm:-mx-6 md:mx-0">
+        {day ? <DayStrand day={day} isDark={isDark} onEdit={(e) => setForm({ open: true, initial: e })} /> : <div className="h-[360px]" />}
+      </div>
 
       {/* Health strip */}
       <Card className="mb-6 p-5">

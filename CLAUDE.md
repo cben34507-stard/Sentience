@@ -14,3 +14,8 @@
 - Health range queries use `start_s`/`end_s` (epoch seconds), never string comparison of ISO timestamps. Additive health totals go through `cumulativeSum` (busiest source per hour).
 - Lab presets live in `LAB_TESTS` (shared). After changing them run `npm run build --workspace=packages/shared && node scripts/gen-ios-presets.mjs`.
 - Never commit personal data: DB files, genome raw files, Health exports and analysis bundles are gitignored. Keep it that way.
+- Every `/api` route is behind `requireAuth` except those listed in `server/src/app.ts`. The web client sends `X-Sentience: 1` on writes (required for cookie sessions); tests authenticate with a device token. Don't add CORS.
+- The DB driver is `better-sqlite3-multiple-ciphers`, typed through the ambient module in `server/src/types/` plus `@types/better-sqlite3`. Open databases with `openDatabase(file, key?)`.
+- Meals and water are events: `meal` with `data.kcal/protein_g/carbs_g/fat_g/fibre_g/slot`, `drink` with `data.water_ml`. Apple Health dietary totals are shown beside them, never summed in.
+- AI (`server/src/services/ai.ts`) is opt-in, uses `claude-opus-5-5` with server-side fallbacks and `output_config`; it must stay optional, and nothing else may call out to the network.
+- Security notes for users live in `docs/SECURITY.md`; keep the checkup in `server/src/routes/auth.ts` in step with it.

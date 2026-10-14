@@ -39,7 +39,8 @@ struct TodayView: View {
             HStack(spacing: 8) {
                 ForEach(QuickAction.all) { q in
                     Button {
-                        creating = EventDraft(category: q.category, title: q.title, startAt: defaultStart())
+                        if let ml = q.waterMl { logWater(ml) }
+                        else { creating = EventDraft(category: q.category, title: q.title, startAt: defaultStart()) }
                     } label: {
                         Label(q.label, systemImage: q.icon)
                             .font(.footnote.weight(.medium))
@@ -53,6 +54,13 @@ struct TodayView: View {
             .padding(.vertical, 8)
         }
         .background(.bar)
+    }
+
+    /// Water is logged in one tap, like a glass in a food diary; edit it afterwards for a different amount.
+    private func logWater(_ ml: Int) {
+        ctx.insert(LocalEvent(category: .drink, title: "Water", startAt: defaultStart(), data: ["water_ml": ml]))
+        try? ctx.save()
+        Task { await sync.syncIfPossible() }
     }
 
     private func shift(_ n: Int) { date = Calendar.current.date(byAdding: .day, value: n, to: date) ?? date }
@@ -130,6 +138,7 @@ struct QuickAction: Identifiable {
     let category: EventCategory
     let title: String
     let icon: String
+    var waterMl: Int? = nil
     var id: String { label }
 
     static let all: [QuickAction] = [
@@ -138,7 +147,7 @@ struct QuickAction: Identifiable {
         .init(label: "Breakfast", category: .meal, title: "Breakfast", icon: "cup.and.saucer"),
         .init(label: "Vitamins", category: .supplement, title: "Vitamins", icon: "pills"),
         .init(label: "Coffee", category: .drink, title: "Coffee", icon: "mug"),
-        .init(label: "Water", category: .drink, title: "Water", icon: "drop"),
+        .init(label: "Water 250 ml", category: .drink, title: "Water", icon: "drop", waterMl: 250),
         .init(label: "Left house", category: .movement, title: "Left the house", icon: "door.left.hand.open"),
         .init(label: "Back home", category: .movement, title: "Got back home", icon: "house"),
         .init(label: "Lunch", category: .meal, title: "Lunch", icon: "takeoutbag.and.cup.and.straw"),

@@ -81,3 +81,21 @@ pull:  { cursor, serverTime, events[], goals[], goalProgress[], facts[], labResu
 Apple Health stores lab panels as `HKClinicalRecord`s, which only healthcare providers can add (through Health Records); apps can read them but not write them. Sentience therefore writes each result whose preset carries a `healthKit` mapping in `LAB_TESTS` as an ordinary quantity sample (glucose, BP as a correlation, SpO₂, temperature, resting HR, weight, BMI, body fat, waist, FEV1, FVC, peak flow), tagged with a sync identifier and a version so edits replace the old sample. Deleting a result in Sentience deletes it from Health. Everything else lives only in Sentience and its exports.
 
 The iOS preset list is generated from the shared one: `node scripts/gen-ios-presets.mjs`.
+
+## Auth
+
+`server/src/lib/auth.ts`. One password per install (scrypt, stored in `auth_config`). Browsers get a 30-day sliding session cookie; the iPhone uses a device token sent as `Authorization: Bearer snt_…`. Both live in `sessions`, keyed by the SHA-256 of the token, so a copy of the database can't be used to log in. `requireAuth` runs in front of every `/api` route except the health check and the login routes. Cookie-authenticated writes must also send `X-Sentience: 1`, which the web client adds and a cross-site form cannot. There is no CORS middleware on purpose. Details and the deployment checklist: [SECURITY.md](SECURITY.md).
+
+## Encryption at rest
+
+The server opens the database through `better-sqlite3-multiple-ciphers`, a drop-in build of better-sqlite3 with SQLite3 Multiple Ciphers compiled in. With `SENTIENCE_DB_KEY(_FILE)` set, `openDatabase` issues `PRAGMA key` and probes a query, so a wrong key fails at startup instead of later. `isFileEncrypted` reads the file header (a plain SQLite file starts with `SQLite format 3`). `npm run db:encrypt --workspace=server` converts an existing file in place with `PRAGMA rekey`.
+
+## Food
+
+Meals and water are ordinary events, so they sync, export and appear on the timeline with no extra tables: `meal` events carry `data.kcal/protein_g/carbs_g/fat_g/fibre_g/slot/items`, and water is a `drink` event with `data.water_ml`. Goals can sum any numeric detail with the `data:<field>` metric. Apple Health dietary samples (from MyFitnessPal and similar apps) are summed with `cumulativeSum` and reported separately from what was logged in Sentience, because the same meal is often in both.
+
+## Insights and AI
+
+`services/insights.ts` is a set of plain rules over the last 7 complete days against the 28 before: resting HR, HRV, sleep duration and onset spread, steps, and pairings of what was logged with how the night went (caffeine after 2pm, meals within 2½ hours of bed, mood). No network involved.
+
+`services/ai.ts` is opt-in (`ANTHROPIC_API_KEY` or a key saved under Settings). Meal estimates ask for structured JSON output against a schema; range assessments send the same Markdown export the user can copy themselves. Requests enable server-side model fallback so a temporarily unavailable model doesn't fail the call. Refusals and API errors come back as readable messages.

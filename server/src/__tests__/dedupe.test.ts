@@ -4,7 +4,7 @@ import { Readable } from "node:stream";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import Database from "better-sqlite3";
+import Database from "better-sqlite3-multiple-ciphers";
 import { openDatabase } from "../lib/db.js";
 import { parseExport } from "../services/healthImport.js";
 import { dailySummary, hourlySeries, insertSamplesBulk, T } from "../services/health.js";

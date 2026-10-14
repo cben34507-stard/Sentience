@@ -1,4 +1,4 @@
-import Database from "better-sqlite3";
+import Database from "better-sqlite3-multiple-ciphers";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -163,6 +163,30 @@ CREATE TABLE IF NOT EXISTS achievements (
   unlocked_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS auth_config (
+  id            INTEGER PRIMARY KEY CHECK (id = 1),
+  password_hash TEXT NOT NULL,
+  created_at    TEXT NOT NULL,
+  updated_at    TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+  id           TEXT PRIMARY KEY,
+  kind         TEXT NOT NULL,
+  name         TEXT NOT NULL DEFAULT '',
+  created_at   TEXT NOT NULL,
+  last_used_at TEXT NOT NULL,
+  expires_at   TEXT,
+  ip           TEXT,
+  user_agent   TEXT
+);
+
+CREATE TABLE IF NOT EXISTS settings (
+  key        TEXT PRIMARY KEY,
+  value      TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS devices (
   id          TEXT PRIMARY KEY,
   name        TEXT,
@@ -210,6 +234,9 @@ function migrate(db: DB): void {
   addCol("health_imports", "sha256", "TEXT");
   addCol("health_imports", "export_date", "TEXT");
   addCol("health_imports", "records_skipped", "INTEGER NOT NULL DEFAULT 0");
+  addCol("profile", "calorie_target", "INTEGER");
+  addCol("profile", "protein_target_g", "INTEGER");
+  addCol("profile", "water_target_ml", "INTEGER");
 
   if (version < 2) {
     db.transaction(() => {
@@ -251,9 +278,40 @@ function migrate(db: DB): void {
   db.prepare(`INSERT INTO meta (key, value) VALUES ('schema', '2') ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run();
 }
 
-export function openDatabase(file: string): DB {
-  if (file !== ":memory:") fs.mkdirSync(path.dirname(file), { recursive: true });
+/** True when the file on disk is not a plain SQLite file (i.e. it's encrypted). */
+export function isFileEncrypted(file: string): boolean | null {
+  if (file === ":memory:" || !fs.existsSync(file)) return null;
+  const fd = fs.openSync(file, "r");
+  try {
+    const buf = Buffer.alloc(16);
+    fs.readSync(fd, buf, 0, 16, 0);
+    return buf.toString("latin1") !== "SQLite format 3\0";
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+const quote = (k: string) => `'${k.replace(/'/g, "''")}'`;
+
+/**
+ * Opens (or creates) the database. With a key the whole file, including the
+ * WAL, is encrypted (SQLite3 Multiple Ciphers); without the key it reads as
+ * random bytes.
+ */
+export function openDatabase(file: string, key?: string | null): DB {
+  if (file !== ":memory:") fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const db = new Database(file);
+  if (key) db.pragma(`key=${quote(key)}`);
+  try {
+    db.prepare("SELECT count(*) FROM sqlite_master").get();
+  } catch {
+    db.close();
+    throw new Error(
+      key
+        ? "Couldn't open the database: the encryption key is wrong."
+        : "Couldn't open the database: it's encrypted. Set SENTIENCE_DB_KEY or SENTIENCE_DB_KEY_FILE.",
+    );
+  }
   db.exec(SCHEMA);
   migrate(db);
   const now = new Date().toISOString();
@@ -276,4 +334,16 @@ export function nextRev(db: DB): number {
 export function currentRev(db: DB): number {
   const row = db.prepare(`SELECT value FROM meta WHERE key = 'rev'`).get() as { value: string };
   return Number(row.value);
+}
+
+/** Encrypts a plain database file in place (or changes its key). */
+export function encryptDatabaseFile(file: string, newKey: string, currentKey?: string | null): void {
+  const db = new Database(file);
+  if (currentKey) db.pragma(`key=${quote(currentKey)}`);
+  db.prepare("SELECT count(*) FROM sqlite_master").get();
+  // Re-keying needs rollback-journal mode; switch back to WAL afterwards.
+  db.pragma("journal_mode = DELETE");
+  db.pragma(`rekey=${quote(newKey)}`);
+  db.pragma("journal_mode = WAL");
+  db.close();
 }

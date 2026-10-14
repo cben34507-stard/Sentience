@@ -1,12 +1,13 @@
 import { NavLink, useLocation, useOutlet } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import { ChartLine, CircleUser, Clock, FlaskConical, HeartPulse, Monitor, Moon, Sun, Target, type LucideIcon } from "lucide-react";
+import { Apple, ChartLine, CircleUser, Clock, FlaskConical, HeartPulse, Monitor, Moon, Settings as SettingsIcon, Sun, Target, type LucideIcon } from "lucide-react";
 import { useTheme, type ThemePref } from "../lib/theme";
 import { Toaster } from "./Toaster";
 
 const NAV: { to: string; label: string; icon: LucideIcon }[] = [
   { to: "/", label: "Today", icon: Clock },
   { to: "/review", label: "Review", icon: ChartLine },
+  { to: "/food", label: "Food", icon: Apple },
   { to: "/tests", label: "Tests", icon: FlaskConical },
   { to: "/goals", label: "Goals", icon: Target },
   { to: "/health", label: "Health", icon: HeartPulse },
@@ -47,7 +48,11 @@ export function Shell({ onReplaySplash }: { onReplaySplash: () => void }) {
             </NavLink>
           ))}
         </nav>
-        <div className="mt-auto">
+        <div className="mt-auto space-y-3">
+          <NavLink to="/settings" className={({ isActive }) => `flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${isActive ? "bg-paper-3 text-ink" : "text-ink-3 hover:bg-paper-2 hover:text-ink"}`}>
+            <SettingsIcon className="h-[18px] w-[18px]" strokeWidth={1.8} />
+            Settings
+          </NavLink>
           <ThemeSwitch />
         </div>
       </aside>
@@ -58,7 +63,12 @@ export function Shell({ onReplaySplash }: { onReplaySplash: () => void }) {
           <Logo />
           <span className="font-semibold tracking-tight">Sentience</span>
         </button>
-        <ThemeSwitch compact />
+        <div className="flex items-center gap-2">
+          <NavLink to="/settings" className="btn-ghost h-9 w-9 rounded-full p-0" aria-label="Settings">
+            <SettingsIcon className="h-[18px] w-[18px]" strokeWidth={1.8} />
+          </NavLink>
+          <ThemeSwitch compact />
+        </div>
       </header>
 
       <main className="w-full px-4 pb-28 pt-6 sm:px-6 md:pb-12 md:pl-[17rem] md:pr-8 md:pt-10 xl:pr-10 2xl:pl-[18rem] 2xl:pr-14">
@@ -104,11 +114,11 @@ function ThemeSwitch({ compact }: { compact?: boolean }) {
           aria-checked={pref === o.v}
           aria-label={o.label}
           onClick={() => setPref(o.v)}
-          className={`relative flex flex-1 items-center justify-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${pref === o.v ? "text-ink" : "text-ink-3 hover:text-ink"}`}
+          className={`relative flex min-w-0 flex-1 items-center justify-center gap-1 rounded-full py-1.5 text-[11px] font-medium transition-colors ${compact ? "px-3" : "px-1.5"} ${pref === o.v ? "text-ink" : "text-ink-3 hover:text-ink"}`}
         >
           {pref === o.v && <motion.span layoutId={compact ? "theme-pill-m" : "theme-pill"} className="absolute inset-0 rounded-full bg-paper shadow-soft" transition={{ type: "spring", stiffness: 500, damping: 40 }} />}
-          <o.icon className="relative h-3.5 w-3.5" strokeWidth={2} />
-          {!compact && <span className="relative">{o.label}</span>}
+          <o.icon className="relative h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+          {!compact && <span className="relative truncate">{o.label}</span>}
         </button>
       ))}
     </div>

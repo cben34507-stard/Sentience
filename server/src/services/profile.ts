@@ -11,6 +11,9 @@ interface ProfileRow {
   weight_kg: number | null;
   timezone: string;
   bio: string;
+  calorie_target: number | null;
+  protein_target_g: number | null;
+  water_target_ml: number | null;
   updated_at: string;
 }
 
@@ -24,6 +27,9 @@ export function getProfile(db: DB): Profile {
     weightKg: r.weight_kg,
     timezone: r.timezone,
     bio: r.bio,
+    calorieTarget: r.calorie_target,
+    proteinTargetG: r.protein_target_g,
+    waterTargetMl: r.water_target_ml,
     updatedAt: r.updated_at,
   };
 }
@@ -32,7 +38,7 @@ export function updateProfile(db: DB, input: ProfileInput): Profile {
   const current = getProfile(db);
   const merged = { ...current, ...stripUndefined(input) };
   db.prepare(
-    `UPDATE profile SET name=?, date_of_birth=?, sex=?, height_cm=?, weight_kg=?, timezone=?, bio=?, updated_at=?, rev=? WHERE id = 1`,
+    `UPDATE profile SET name=?, date_of_birth=?, sex=?, height_cm=?, weight_kg=?, timezone=?, bio=?, calorie_target=?, protein_target_g=?, water_target_ml=?, updated_at=?, rev=? WHERE id = 1`,
   ).run(
     merged.name,
     merged.dateOfBirth ?? null,
@@ -41,6 +47,9 @@ export function updateProfile(db: DB, input: ProfileInput): Profile {
     merged.weightKg ?? null,
     merged.timezone,
     merged.bio,
+    merged.calorieTarget ?? null,
+    merged.proteinTargetG ?? null,
+    merged.waterTargetMl ?? null,
     new Date().toISOString(),
     nextRev(db),
   );

@@ -1,23 +1,20 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Fact, FactInput, FactKind, Profile as ProfileT } from "@sentience/shared";
 import { FACT_KINDS, FACT_KIND_META } from "@sentience/shared";
 import { api } from "../lib/api";
-import { apoeType, describe, genotypeFromValue, parse23andMe, type ParsedSnp } from "../lib/snps";
 import { Card, Empty, Field, Modal, PageTitle, SectionTitle, Spinner, useToast } from "../components/ui";
 import { Select } from "../components/Select";
-import { Dna, FolderOpen, Plus, RefreshCw, ShieldCheck } from "lucide-react";
+import { Dna, FolderOpen, Plus } from "lucide-react";
+import { Link } from "react-router-dom";
 
 export function Profile() {
   const [profile, setProfile] = useState<ProfileT | null>(null);
   const [facts, setFacts] = useState<Fact[] | null>(null);
   const [factForm, setFactForm] = useState<{ open: boolean; editing: Fact | null; kind: FactKind }>({ open: false, editing: null, kind: "condition" });
-  const [dna, setDna] = useState<{ open: boolean; found: ParsedSnp[]; total: number; selected: Set<string> } | null>(null);
   const [savingProfile, setSavingProfile] = useState(false);
   const [sex, setSex] = useState<ProfileT["sex"]>("unspecified");
   const [timezone, setTimezone] = useState("UTC");
-  const [refreshing, setRefreshing] = useState(false);
   const toast = useToast();
-  const dnaRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     const [p, f] = await Promise.all([api.profile.get(), api.facts.list()]);
@@ -67,84 +64,12 @@ export function Profile() {
 
   const grouped = useMemo(() => {
     const g = new Map<FactKind, Fact[]>();
-    for (const f of facts ?? []) g.set(f.kind, [...(g.get(f.kind) ?? []), f]);
+    for (const f of facts ?? []) if (f.kind !== "genetic") g.set(f.kind, [...(g.get(f.kind) ?? []), f]);
     return g;
   }, [facts]);
 
-  const onDnaFile = async (file: File) => {
-    const text = await file.text();
-    const { found, totalLines } = parse23andMe(text);
-    if (dnaRef.current) dnaRef.current.value = "";
-    if (found.length === 0) {
-      toast("No recognised markers — is this the 23andMe raw data .txt?", "err");
-      return;
-    }
-    setDna({ open: true, found, total: totalLines, selected: new Set(found.map((f) => f.rsid)) });
-  };
 
-  const importDna = async () => {
-    if (!dna) return;
-    const existing = new Set((facts ?? []).filter((f) => f.kind === "genetic").map((f) => f.key));
-    const items: FactInput[] = dna.found
-      .filter((s) => dna.selected.has(s.rsid) && !existing.has(s.rsid))
-      .map((s) => ({
-        kind: "genetic",
-        key: s.rsid,
-        value: describe(s.rsid, s.genotype),
-        source: "23andMe raw data",
-        recordedOn: new Date().toISOString().slice(0, 10),
-      }));
-    const g = (id: string) => dna.found.find((f) => f.rsid === id)?.genotype ?? null;
-    const apoe = apoeType(g("rs429358"), g("rs7412"));
-    if (apoe && !existing.has("APOE type")) {
-      items.push({ kind: "genetic", key: "APOE type", value: apoe, source: "Derived from rs429358 + rs7412", recordedOn: new Date().toISOString().slice(0, 10) });
-    }
-    if (items.length === 0) {
-      toast("Those markers are already on record");
-      setDna(null);
-      return;
-    }
-    await api.facts.bulk(items);
-    toast(`Added ${items.length} genetic markers`);
-    setDna(null);
-    await load();
-  };
 
-  /** Re-reads stored genotypes and rewrites their descriptions with the current marker table. */
-  const refreshGenetics = async () => {
-    if (!facts) return;
-    setRefreshing(true);
-    try {
-      const genetic = facts.filter((f) => f.kind === "genetic");
-      let updated = 0;
-      const gt = new Map<string, string>();
-      for (const f of genetic) {
-        const g = genotypeFromValue(f.value);
-        if (!g || !/^rs\d+$/.test(f.key)) continue;
-        gt.set(f.key, g);
-        const next = describe(f.key, g);
-        if (next !== f.value) {
-          await api.facts.update(f.id, { value: next });
-          updated++;
-        }
-      }
-      const apoe = apoeType(gt.get("rs429358") ?? null, gt.get("rs7412") ?? null);
-      const existingApoe = genetic.find((f) => f.key === "APOE type");
-      if (apoe && !existingApoe) {
-        await api.facts.create({ kind: "genetic", key: "APOE type", value: apoe, source: "Derived from rs429358 + rs7412", recordedOn: new Date().toISOString().slice(0, 10) });
-        updated++;
-      } else if (apoe && existingApoe && existingApoe.value !== apoe) {
-        await api.facts.update(existingApoe.id, { value: apoe });
-        updated++;
-      }
-      toast(updated ? `Updated ${updated} genetic readings` : "Genetic readings are up to date");
-      await load();
-    } catch (e) {
-      toast(e instanceof Error ? e.message : "Could not refresh", "err");
-    } finally {
-      setRefreshing(false);
-    }
-  };
 
   const tzList = useMemo(() => {
     let list: string[];
@@ -219,15 +144,9 @@ export function Profile() {
             <SectionTitle
               aside={
                 <div className="flex gap-1">
-                  {grouped.has("genetic") && (
-                    <button className="btn-ghost h-8 px-3 text-xs" onClick={refreshGenetics} disabled={refreshing} title="Re-read stored genotypes with the latest marker table">
-                      <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} /> Refresh readings
-                    </button>
-                  )}
-                  <button className="btn-outline h-8 px-3 text-xs" onClick={() => dnaRef.current?.click()}>
-                    <Dna className="h-3.5 w-3.5" /> Import 23andMe
-                  </button>
-                  <input ref={dnaRef} type="file" accept=".txt,.csv,.tsv" className="hidden" onChange={(e) => e.target.files?.[0] && void onDnaFile(e.target.files[0])} />
+                  <Link to="/tests?tab=genetics" className="btn-ghost h-8 px-3 text-xs">
+                    <Dna className="h-3.5 w-3.5" /> Genetics is in Tests
+                  </Link>
                   <button className="btn-primary h-8 px-3 text-xs" onClick={() => setFactForm({ open: true, editing: null, kind: "condition" })}>
                     <Plus className="h-3.5 w-3.5" /> Add
                   </button>
@@ -238,15 +157,15 @@ export function Profile() {
             </SectionTitle>
             {facts == null ? (
               <Spinner />
-            ) : facts.length === 0 ? (
+            ) : grouped.size === 0 ? (
               <Empty
                 icon={FolderOpen}
                 title="Nothing on record yet"
-                body="Conditions, medications, allergies, lab results, genetic markers from a 23andMe raw file — anything that should colour how your days get read."
+                body="Conditions, medications, allergies, history, preferences: anything that should colour how your days get read. Test results, body measurements and genetics live in Tests."
               />
             ) : (
               <div className="space-y-5 2xl:columns-2 2xl:gap-6 2xl:space-y-0 [&>div]:2xl:mb-5 [&>div]:break-inside-avoid">
-                {FACT_KINDS.filter((k) => grouped.has(k)).map((k) => (
+                {FACT_KINDS.filter((k) => k !== "genetic" && grouped.has(k)).map((k) => (
                   <div key={k}>
                     <div className="mb-2 flex items-center justify-between">
                       <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-3">{FACT_KIND_META[k].label}</div>
@@ -289,53 +208,6 @@ export function Profile() {
         }}
       />
 
-      <Modal open={!!dna?.open} onClose={() => setDna(null)} title="Import genetic markers" wide>
-        {dna && (
-          <div>
-            <p className="mb-4 text-sm text-ink-2">
-              Scanned {dna.total.toLocaleString()} rows locally in your browser and found <b className="text-ink">{dna.found.length}</b> well-studied markers. Only the ones you tick are saved to your server; the raw file never leaves this computer.
-            </p>
-            <div className="max-h-[50vh] overflow-y-auto rounded-xl border border-line">
-              <table className="w-full text-sm">
-                <tbody className="divide-y divide-line">
-                  {dna.found.map((s) => (
-                    <tr key={s.rsid} className="hover:bg-paper-2">
-                      <td className="w-8 px-3 py-2">
-                        <input
-                          type="checkbox"
-                          checked={dna.selected.has(s.rsid)}
-                          onChange={(e) => {
-                            const sel = new Set(dna.selected);
-                            if (e.target.checked) sel.add(s.rsid);
-                            else sel.delete(s.rsid);
-                            setDna({ ...dna, selected: sel });
-                          }}
-                        />
-                      </td>
-                      <td className="px-2 py-2 font-mono text-xs">{s.rsid}</td>
-                      <td className="px-2 py-2 font-mono text-xs font-semibold">{s.genotype}</td>
-                      <td className="px-2 py-2 text-xs">
-                        <span className="text-ink-2">{describe(s.rsid, s.genotype).split(" — ")[1]}</span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <p className="mt-3 flex items-start gap-2 text-xs text-ink-3">
-              <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" /> Readings are population associations, not diagnoses. Genotypes are read as 23andMe reports them (forward strand), which is why some gene names look flipped compared with papers.
-            </p>
-            <div className="mt-4 flex justify-end gap-2">
-              <button className="btn-ghost" onClick={() => setDna(null)}>
-                Cancel
-              </button>
-              <button className="btn-primary" onClick={importDna}>
-                Add {dna.selected.size} markers
-              </button>
-            </div>
-          </div>
-        )}
-      </Modal>
     </div>
   );
 }
@@ -382,7 +254,7 @@ function FactForm({ open, editing, kind: initialKind, onClose, onSaved }: { open
         <div>
           <span className="label">Type</span>
           <div className="flex flex-wrap gap-1.5">
-            {FACT_KINDS.map((k) => (
+            {FACT_KINDS.filter((k) => k !== "genetic").map((k) => (
               <button type="button" key={k} className={`chip ${kind === k ? "!border-ink !bg-ink !text-paper" : ""}`} onClick={() => setKind(k)}>
                 {FACT_KIND_META[k].label}
               </button>

@@ -46,3 +46,8 @@ apple_health_export/
 sentience_*.json
 sentience_*.md
 private/
+# secrets: database keys, TLS keys and certs
+*.key
+*.pem
+*.crt
+db.key

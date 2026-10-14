@@ -26,6 +26,9 @@ updateProfile(db, {
   weightKg: 78,
   timezone: tz,
   bio: "Works from home three days a week. Trying to get a steadier morning and sleep before midnight.",
+  calorieTarget: 2300,
+  proteinTargetG: 140,
+  waterTargetMl: 2500,
 });
 // Fictional demo record. Nothing here describes a real person.
 createFact(db, { kind: "condition", key: "Hay fever (demo)", value: "Seasonal, spring and early summer.", source: "Demo data", recordedOn: "2020-04-01" });
@@ -49,13 +52,15 @@ for (let i = 13; i >= 0; i--) {
   // Events
   createEvent(db, { category: "wake", title: "Woke up", startAt: iso(d, lateNight ? 8 : 7, 10 + Math.round(rnd(0, 30))), source: "import" });
   createEvent(db, { category: "hygiene", title: "Brushed teeth", startAt: iso(d, lateNight ? 8 : 7, 45), source: "import" });
-  createEvent(db, { category: "meal", title: i % 2 ? "Porridge, banana, coffee" : "Eggs on toast, coffee", startAt: iso(d, 8, 20), tags: ["breakfast"], data: { kcal: 480 + Math.round(rnd(-60, 90)) }, source: "import" });
+  createEvent(db, { category: "meal", title: i % 2 ? "Porridge, banana, coffee" : "Eggs on toast, coffee", startAt: iso(d, 8, 20), tags: ["breakfast"], data: { slot: "breakfast", kcal: 480 + Math.round(rnd(-60, 90)), protein_g: 22, carbs_g: 58, fat_g: 16 }, source: "import" });
+  for (const [h, ml] of [[10, 500], [13, 250], [15, 500], [18, 330]] as const) if (rnd(0, 1) > 0.25) createEvent(db, { category: "drink", title: `Water ${ml} ml`, startAt: iso(d, h, 15), tags: ["water"], data: { water_ml: ml }, source: "import" });
+  if (i % 3 === 2) createEvent(db, { category: "drink", title: "Flat white", startAt: iso(d, 15, 30), data: { caffeine_mg: 130 }, source: "import" });
   createEvent(db, { category: "supplement", title: "Vitamin D + omega-3", startAt: iso(d, 8, 25), source: "import" });
   createEvent(db, { category: "medication", title: "Cetirizine 10 mg", startAt: iso(d, 8, 30), source: "import" });
   if (i % 7 < 5) {
     createEvent(db, { category: "movement", title: "Left the house", startAt: iso(d, 9, 5), source: "import" });
     createEvent(db, { category: "work", title: "Deep work block", startAt: iso(d, 9, 45), endAt: iso(d, 12, 30), rating: Math.round(rnd(5, 9)), source: "import" });
-    createEvent(db, { category: "meal", title: "Chicken wrap and salad", startAt: iso(d, 13, 0), tags: ["lunch"], data: { kcal: 620 }, source: "import" });
+    createEvent(db, { category: "meal", title: "Chicken wrap and salad", startAt: iso(d, 13, 0), tags: ["lunch"], data: { slot: "lunch", kcal: 620, protein_g: 41, carbs_g: 55, fat_g: 22 }, source: "import" });
     createEvent(db, { category: "movement", title: "Got back home", startAt: iso(d, 17, 50), source: "import" });
   } else {
     createEvent(db, { category: "meal", title: "Leftovers", startAt: iso(d, 13, 30), tags: ["lunch"], source: "import" });
@@ -65,7 +70,7 @@ for (let i = 13; i >= 0; i--) {
     createEvent(db, { category: "workout", title: "Gym — push day", startAt: iso(d, 18, 15), endAt: iso(d, 19, 10), rating: 8, source: "import" });
     workouts.push({ activityType: "TraditionalStrengthTraining", startAt: iso(d, 18, 15), endAt: iso(d, 19, 10), durationMin: 55, energyKcal: 410, distanceKm: null, sourceName: "Apple Watch" });
   }
-  createEvent(db, { category: "meal", title: "Salmon, rice, greens", startAt: iso(d, 19, 45), tags: ["dinner"], data: { kcal: 740 }, source: "import" });
+  createEvent(db, { category: "meal", title: "Salmon, rice, greens", startAt: iso(d, 19, 45), tags: ["dinner"], data: { slot: "dinner", kcal: 740, protein_g: 46, carbs_g: 72, fat_g: 26 }, source: "import" });
   createEvent(db, { category: "mood", title: lateNight ? "Flat and foggy" : "Steady", rating: lateNight ? 4 : Math.round(rnd(6, 8)), startAt: iso(d, 21, 0), source: "import" });
   createEvent(db, { category: "sleep", title: "Went to bed", startAt: iso(d, lateNight ? 23 : 22, lateNight ? 55 : 40), source: "import" });
 
@@ -117,6 +122,12 @@ const labs: [string, string, string, number, string, number | null, number | nul
   ["bp_dia", "Blood pressure (diastolic)", "Clinic measurements", 79, "mmHg", null, 90, "-5"],
 ];
 const todayStr = today.toISOString().slice(0, 10);
+// Tape-measure check-ins, a fortnight apart.
+for (const [offset, waist, hips, chest, bicep] of [[-28, 88.5, 101, 103, 34.5], [-14, 87.4, 100.5, 103.5, 35], [-1, 86.6, 100.2, 104, 35.3]] as const) {
+  const when = iso(addDays(todayStr, offset), 7, 30);
+  for (const [k, name, v] of [["waist", "Waist", waist], ["hips", "Hips", hips], ["chest", "Chest", chest], ["bicep_r", "Bicep (right)", bicep], ["weight", "Weight", 79 + offset / 28]] as const)
+    createLab(db, { testKey: k, name, panel: "Body measurements", value: Math.round(v * 10) / 10, unit: k === "weight" ? "kg" : "cm", takenAt: when, lab: "Self-measured" });
+}
 for (const [testKey, name, panel, value, unit, refLow, refHigh, offset] of labs) {
   createLab(db, { testKey, name, panel, value, unit, refLow, refHigh, takenAt: iso(addDays(todayStr, Number(offset)), 9, 10), lab: "GP surgery" });
 }

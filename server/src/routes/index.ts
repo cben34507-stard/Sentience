@@ -24,6 +24,10 @@ import { computeAchievements, loggingStreak } from "../services/achievements.js"
 import { buildBundle, bundleToMarkdown } from "../services/exportBundle.js";
 import { sync } from "../services/sync.js";
 import * as labs from "../services/labs.js";
+import { frequentMeals, nutritionForDay } from "../services/nutrition.js";
+import { computeInsights } from "../services/insights.js";
+import { aiStatus, assessRange, estimateMeal } from "../services/ai.js";
+import { setSetting } from "../services/settings.js";
 
 const DateQuery = z.object({ date: isoDate.optional() });
 const RangeQuery = z.object({ from: isoDate, to: isoDate });
@@ -103,6 +107,11 @@ export function buildRouter(db: DB, uploadDir: string): Router {
       stepsByHour: health.hourlySeries(db, health.T.steps, date, zone, "sum"),
       goals: goals.allGoalStatuses(db, date, zone),
       labResults: labs.listLabs(db, dayRange(date, zone).start, dayRange(date, zone).end),
+      // Sleep touching this calendar day: the night that ended this morning and the one starting tonight.
+      sleep: [...health.sleepIntervalsForNight(db, date, zone), ...health.sleepIntervalsForNight(db, addDays(date, 1), zone)].map(([a, b]) => ({
+        startAt: new Date(a * 1000).toISOString(),
+        endAt: new Date(b * 1000).toISOString(),
+      })),
     };
   }));
 
@@ -253,6 +262,40 @@ export function buildRouter(db: DB, uploadDir: string): Router {
   r.delete("/labs/:id", wrap((req, res) => {
     if (!labs.deleteLab(db, req.params.id)) throw new HttpError(404, "result not found");
     res.status(204).end();
+  }));
+
+  /* ---------- nutrition ---------- */
+  r.get("/nutrition", wrap((req) => {
+    const { date = todayIn(tz()) } = parse(DateQuery, req.query);
+    return nutritionForDay(db, date, tz());
+  }));
+  r.get("/nutrition/frequent", wrap(() => frequentMeals(db)));
+
+  /* ---------- insights (local, no AI) ---------- */
+  r.get("/insights", wrap(() => computeInsights(db, tz(), todayIn(tz()))));
+
+  /* ---------- AI (optional; needs an Anthropic API key) ---------- */
+  r.get("/ai/status", wrap(() => aiStatus(db)));
+  r.put("/settings/ai", wrap((req) => {
+    const { apiKey } = parse(z.object({ apiKey: z.string().trim().min(20).max(400).nullable() }), req.body);
+    setSetting(db, "anthropic_api_key", apiKey);
+    return aiStatus(db);
+  }));
+  r.post("/ai/meal-estimate", wrap(async (req) => {
+    const body = parse(
+      z.object({
+        description: z.string().max(2000).default(""),
+        image: z.object({ data: z.string().max(12_000_000), mediaType: z.enum(["image/jpeg", "image/png", "image/webp", "image/gif"]) }).optional(),
+      }),
+      req.body,
+    );
+    if (!body.description.trim() && !body.image) throw new HttpError(400, "Describe the meal or add a photo");
+    return estimateMeal(db, body);
+  }));
+  r.post("/ai/assess", wrap(async (req) => {
+    const { from, to } = parse(RangeQuery, req.body);
+    if (addDays(from, 31) < to) throw new HttpError(400, "Pick 31 days or fewer for an AI assessment");
+    return assessRange(db, bundleToMarkdown(buildBundle(db, from, to)));
   }));
 
   /* ---------- achievements ---------- */

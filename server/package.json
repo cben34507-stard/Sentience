@@ -10,21 +10,21 @@
     "start": "node dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "tsx --test src/__tests__/*.test.ts",
-    "seed": "tsx scripts/seed.ts"
+    "seed": "tsx scripts/seed.ts",
+    "db:encrypt": "tsx scripts/encrypt-db.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "0.129.0",
     "@sentience/shared": "*",
-    "better-sqlite3": "^11.5.0",
-    "cors": "^2.8.5",
+    "better-sqlite3-multiple-ciphers": "13.0.3",
     "express": "^4.21.1",
-    "multer": "^1.4.5-lts.1",
+    "multer": "2.4.0",
     "sax": "^1.4.1",
     "yauzl": "^3.1.3",
     "zod": "^3.23.8"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.11",
-    "@types/cors": "^2.8.17",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/express": "^4.17.21",
     "@types/multer": "^1.4.12",
     "@types/node": "^22.7.5",

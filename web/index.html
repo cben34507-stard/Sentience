@@ -7,14 +7,7 @@
     <meta name="theme-color" content="#0b0b0c" media="(prefers-color-scheme: dark)" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <title>Sentience</title>
-    <script>
-      // Apply the saved theme before first paint to avoid a flash.
-      try {
-        var t = localStorage.getItem("sentience.theme") || "system";
-        var dark = t === "dark" || (t === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
-        if (dark) document.documentElement.classList.add("dark");
-      } catch (e) {}
-    </script>
+    <script src="/theme-init.js"></script>
   </head>
   <body>
     <div id="root"></div>

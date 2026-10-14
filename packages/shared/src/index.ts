@@ -107,6 +107,10 @@ export const ProfileSchema = z.object({
   timezone: z.string().default("UTC"),
   /** Anything you want an analyst to know up front. */
   bio: z.string().max(5000).default(""),
+  /** Daily nutrition targets for the Food page. */
+  calorieTarget: z.number().int().positive().max(10000).optional().nullable(),
+  proteinTargetG: z.number().int().positive().max(1000).optional().nullable(),
+  waterTargetMl: z.number().int().positive().max(10000).optional().nullable(),
   updatedAt: isoDateTime,
 });
 export type Profile = z.infer<typeof ProfileSchema>;
@@ -212,6 +216,10 @@ export const HEALTH_TYPE_META: Record<string, { label: string; unit: string; sho
   HKQuantityTypeIdentifierWalkingHeartRateAverage: { label: "Walking HR average", unit: "bpm", short: "Walk HR" },
   HKQuantityTypeIdentifierEnvironmentalAudioExposure: { label: "Environmental sound", unit: "dBASPL", short: "Noise" },
   HKQuantityTypeIdentifierDietaryWater: { label: "Water", unit: "mL", short: "Water" },
+  HKQuantityTypeIdentifierDietaryEnergyConsumed: { label: "Calories eaten", unit: "kcal", short: "Eaten" },
+  HKQuantityTypeIdentifierDietaryProtein: { label: "Protein", unit: "g", short: "Protein" },
+  HKQuantityTypeIdentifierDietaryCarbohydrates: { label: "Carbohydrates", unit: "g", short: "Carbs" },
+  HKQuantityTypeIdentifierDietaryFatTotal: { label: "Fat", unit: "g", short: "Fat" },
   HKQuantityTypeIdentifierDietaryCaffeine: { label: "Caffeine", unit: "mg", short: "Caffeine" },
   HKCategoryTypeIdentifierSleepAnalysis: { label: "Sleep", unit: "min", short: "Sleep" },
   HKCategoryTypeIdentifierMindfulSession: { label: "Mindful minutes", unit: "min", short: "Mindful" },
@@ -235,6 +243,66 @@ export const DailyHealthSummarySchema = z.object({
   workouts: z.array(HealthWorkoutSchema),
 });
 export type DailyHealthSummary = z.infer<typeof DailyHealthSummarySchema>;
+
+/* ------------------------------------------------------------------ */
+/* Nutrition — meals and water are timeline events with numbers in data */
+/* ------------------------------------------------------------------ */
+
+export const MEAL_SLOTS = ["breakfast", "lunch", "dinner", "snack"] as const;
+export type MealSlot = (typeof MEAL_SLOTS)[number];
+
+/** Fields stored in a meal event's `data`. */
+export const MealDataSchema = z.object({
+  slot: z.enum(MEAL_SLOTS).optional(),
+  portion: z.string().max(200).optional(),
+  kcal: z.number().nonnegative().optional(),
+  protein_g: z.number().nonnegative().optional(),
+  carbs_g: z.number().nonnegative().optional(),
+  fat_g: z.number().nonnegative().optional(),
+  fibre_g: z.number().nonnegative().optional(),
+  /** True when the numbers came from an AI estimate. */
+  estimated: z.boolean().optional(),
+});
+export type MealData = z.infer<typeof MealDataSchema>;
+
+export const MealEstimateSchema = z.object({
+  items: z.array(
+    z.object({
+      name: z.string(),
+      portion: z.string(),
+      kcal: z.number(),
+      protein_g: z.number(),
+      carbs_g: z.number(),
+      fat_g: z.number(),
+      fibre_g: z.number(),
+    }),
+  ),
+  confidence: z.enum(["low", "medium", "high"]),
+  notes: z.string(),
+});
+export type MealEstimate = z.infer<typeof MealEstimateSchema>;
+
+export interface NutritionDay {
+  date: string;
+  meals: Event[];
+  water: Event[];
+  totals: { kcal: number; protein_g: number; carbs_g: number; fat_g: number; fibre_g: number; water_ml: number };
+  /** What Apple Health recorded that day (e.g. synced from MyFitnessPal). Not added to totals. */
+  appleHealth: { kcal: number | null; protein_g: number | null; carbs_g: number | null; fat_g: number | null; water_ml: number | null };
+  targets: { kcal: number | null; protein_g: number | null; water_ml: number | null };
+}
+
+/* ------------------------------------------------------------------ */
+/* Insights — plain-language findings computed locally                  */
+/* ------------------------------------------------------------------ */
+
+export interface Insight {
+  id: string;
+  tone: "good" | "watch" | "info";
+  title: string;
+  detail: string;
+  area: "heart" | "sleep" | "activity" | "nutrition" | "tests" | "mood";
+}
 
 /* ------------------------------------------------------------------ */
 /* Goals & achievements                                                */
@@ -430,14 +498,30 @@ export const LAB_TESTS: LabTestPreset[] = [
   { key: "spo2", name: "Oxygen saturation", panel: "Clinic measurements", unit: "%", refLow: 95, healthKit: { type: "HKQuantityTypeIdentifierOxygenSaturation", unit: "%" } },
   { key: "temp", name: "Body temperature", panel: "Clinic measurements", unit: "°C", refLow: 36.1, refHigh: 37.5, healthKit: { type: "HKQuantityTypeIdentifierBodyTemperature", unit: "degC" } },
   { key: "pulse", name: "Pulse (resting)", panel: "Clinic measurements", unit: "bpm", refLow: 50, refHigh: 100, healthKit: { type: "HKQuantityTypeIdentifierRestingHeartRate", unit: "count/min" } },
-  { key: "weight", name: "Weight", panel: "Clinic measurements", unit: "kg", healthKit: { type: "HKQuantityTypeIdentifierBodyMass", unit: "kg" } },
-  { key: "bmi", name: "BMI", panel: "Clinic measurements", unit: "kg/m²", refLow: 18.5, refHigh: 24.9, healthKit: { type: "HKQuantityTypeIdentifierBodyMassIndex", unit: "count" } },
-  { key: "body_fat", name: "Body fat", panel: "Clinic measurements", unit: "%", healthKit: { type: "HKQuantityTypeIdentifierBodyFatPercentage", unit: "%" } },
-  { key: "waist", name: "Waist circumference", panel: "Clinic measurements", unit: "cm", healthKit: { type: "HKQuantityTypeIdentifierWaistCircumference", unit: "cm" } },
+  { key: "weight", name: "Weight", panel: "Body measurements", unit: "kg", healthKit: { type: "HKQuantityTypeIdentifierBodyMass", unit: "kg" } },
+  { key: "bmi", name: "BMI", panel: "Body measurements", unit: "kg/m²", refLow: 18.5, refHigh: 24.9, healthKit: { type: "HKQuantityTypeIdentifierBodyMassIndex", unit: "count" } },
+  { key: "body_fat", name: "Body fat", panel: "Body measurements", unit: "%", healthKit: { type: "HKQuantityTypeIdentifierBodyFatPercentage", unit: "%" } },
+  { key: "waist", name: "Waist", panel: "Body measurements", unit: "cm", healthKit: { type: "HKQuantityTypeIdentifierWaistCircumference", unit: "cm" } },
+  // Tape-measure sites (Apple Health only has a slot for waist)
+  { key: "neck", name: "Neck", panel: "Body measurements", unit: "cm" },
+  { key: "shoulders", name: "Shoulders", panel: "Body measurements", unit: "cm" },
+  { key: "chest", name: "Chest", panel: "Body measurements", unit: "cm" },
+  { key: "hips", name: "Hips", panel: "Body measurements", unit: "cm" },
+  { key: "bicep_l", name: "Bicep (left)", panel: "Body measurements", unit: "cm" },
+  { key: "bicep_r", name: "Bicep (right)", panel: "Body measurements", unit: "cm" },
+  { key: "forearm", name: "Forearm", panel: "Body measurements", unit: "cm" },
+  { key: "thigh_l", name: "Thigh (left)", panel: "Body measurements", unit: "cm" },
+  { key: "thigh_r", name: "Thigh (right)", panel: "Body measurements", unit: "cm" },
+  { key: "calf_l", name: "Calf (left)", panel: "Body measurements", unit: "cm" },
+  { key: "calf_r", name: "Calf (right)", panel: "Body measurements", unit: "cm" },
   { key: "fev1", name: "FEV1", panel: "Lung function", unit: "L", healthKit: { type: "HKQuantityTypeIdentifierForcedExpiratoryVolume1", unit: "L" } },
   { key: "fvc", name: "FVC", panel: "Lung function", unit: "L", healthKit: { type: "HKQuantityTypeIdentifierForcedVitalCapacity", unit: "L" } },
   { key: "peak_flow", name: "Peak flow", panel: "Lung function", unit: "L/min", healthKit: { type: "HKQuantityTypeIdentifierPeakExpiratoryFlowRate", unit: "L/min" } },
 ];
+
+/** Tape-measure sites in the order you'd measure them, top to bottom. */
+export const TAPE_SITES = ["neck", "shoulders", "chest", "bicep_l", "bicep_r", "forearm", "waist", "hips", "thigh_l", "thigh_r", "calf_l", "calf_r"] as const;
+export const BODY_PANEL = "Body measurements";
 
 export const LAB_TEST_BY_KEY: Record<string, LabTestPreset> = Object.fromEntries(LAB_TESTS.map((t) => [t.key, t]));
 

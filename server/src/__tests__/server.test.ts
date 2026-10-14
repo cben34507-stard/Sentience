@@ -12,6 +12,7 @@ import { dailySummary, hourlySeries, T } from "../services/health.js";
 import { createApp } from "../app.js";
 import { bundleToMarkdown, buildBundle } from "../services/exportBundle.js";
 import { periodFor } from "../services/goals.js";
+import { createSession, setPassword } from "../lib/auth.js";
 import type { Goal } from "@sentience/shared";
 
 const SAMPLE_XML = `<?xml version="1.0" encoding="UTF-8"?>
@@ -86,8 +87,11 @@ test("REST API: events, day view, goals, export, sync", async () => {
   const app = createApp({ db, uploadDir });
   const server = app.listen(0);
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api`;
+  setPassword(db, "correct horse battery");
+  const { token } = createSession(db, "device", { name: "test" });
+  const authH = { authorization: `Bearer ${token}` };
   const j = async (p: string, init?: RequestInit) => {
-    const res = await fetch(base + p, { headers: { "content-type": "application/json" }, ...init });
+    const res = await fetch(base + p, { ...init, headers: { "content-type": "application/json", ...authH, ...(init?.headers ?? {}) } });
     return { status: res.status, body: res.status === 204 ? null : await res.json() };
   };
 
@@ -120,7 +124,7 @@ test("REST API: events, day view, goals, export, sync", async () => {
     assert.equal(goalsOnDay.body[0].complete, true);
     assert.equal(goalsOnDay.body[0].current, 2000);
 
-    const md = await fetch(`${base}/export?date=2026-10-13&format=md`).then((r) => r.text());
+    const md = await fetch(`${base}/export?date=2026-10-13&format=md`, { headers: authH }).then((r) => r.text());
     assert.match(md, /Eggs and toast/);
     assert.match(md, /Steps 2000/);
     assert.match(md, /HR that hour/);
@@ -162,7 +166,7 @@ test("REST API: events, day view, goals, export, sync", async () => {
     assert.equal(again2.body.duplicate, true);
     const labsList = await j("/labs");
     assert.equal(labsList.body.length, 1);
-    const md2 = await fetch(`${base}/export?date=2026-10-13&format=md`).then((r) => r.text());
+    const md2 = await fetch(`${base}/export?date=2026-10-13&format=md`, { headers: authH }).then((r) => r.text());
     assert.match(md2, /## Test results/);
     assert.match(md2, /LOW/);
     assert.doesNotMatch(md2, /\p{Extended_Pictographic}/u);
@@ -176,7 +180,7 @@ test("REST API: events, day view, goals, export, sync", async () => {
     const upload = async () => {
       const fd = new FormData();
       fd.append("file", new Blob([SAMPLE_XML], { type: "text/xml" }), "export.xml");
-      const res = await fetch(`${base}/health/import`, { method: "POST", body: fd });
+      const res = await fetch(`${base}/health/import`, { method: "POST", body: fd, headers: authH });
       return (await res.json()) as { id: string };
     };
     const waitJob = async (id: string) => {

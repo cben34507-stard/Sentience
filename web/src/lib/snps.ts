@@ -225,3 +225,13 @@ export function parse23andMe(text: string): { found: ParsedSnp[]; totalLines: nu
   }
   return { found, totalLines: total, noCalls, build };
 }
+
+export type Evidence = "strong" | "moderate" | "weak";
+export const EVIDENCE_ORDER: Evidence[] = ["strong", "moderate", "weak"];
+
+/** Structured reading for display, straight from the marker table. */
+export function snpParts(rsid: string, genotype: string): { gene: string; about: string; call: string | null; evidence: Evidence; known: boolean } {
+  const def = BY_ID.get(rsid);
+  if (!def) return { gene: "", about: "", call: null, evidence: "weak", known: false };
+  return { gene: def.gene, about: def.about, call: def.calls?.[norm(genotype)] ?? null, evidence: def.evidence ?? "weak", known: true };
+}

@@ -1,17 +1,27 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { FlaskConical, HeartPulse, Info, Layers, Pencil, Plus, Trash2, X } from "lucide-react";
-import { LAB_TESTS, LAB_TEST_BY_KEY, labFlag, type LabFlag, type LabResult, type LabResultInput } from "@sentience/shared";
+import { BODY_PANEL, LAB_TESTS, LAB_TEST_BY_KEY, labFlag, type Fact, type LabResult, type LabResultInput, type Profile } from "@sentience/shared";
+import { useSearchParams } from "react-router-dom";
+import { Body } from "../components/Body";
+import { Genetics } from "../components/Genetics";
 import { api } from "../lib/api";
 import { fmtNum, toInputDateTime, fromInputDateTime } from "../lib/date";
 import { Card, Empty, Field, Modal, PageTitle, SectionTitle, Spinner, useToast } from "../components/ui";
 import { Select, type SelectOption } from "../components/Select";
-import { useWidth } from "../components/Charts";
+import { FlagBadge, FlagDot, LabTrend, Spark, rangeText } from "../components/LabCharts";
 
-const PANELS = [...new Set(LAB_TESTS.map((t) => t.panel))];
+const PANELS = [...new Set(LAB_TESTS.filter((t) => t.panel !== BODY_PANEL).map((t) => t.panel))];
+
+const TABS = [
+  { key: "bloods", label: "Bloods & clinic" },
+  { key: "body", label: "Body measurements" },
+  { key: "genetics", label: "Genetics" },
+] as const;
+type Tab = (typeof TABS)[number]["key"];
 
 const TEST_OPTIONS: SelectOption[] = [
-  ...LAB_TESTS.map((t) => ({
+  ...LAB_TESTS.filter((t) => t.panel !== BODY_PANEL).map((t) => ({
     value: t.key,
     label: t.name,
     hint: `${t.unit}${t.healthKit ? " · shares to Apple Health" : ""}`,
@@ -47,17 +57,28 @@ function groupResults(results: LabResult[]): Series[] {
 
 export function Tests() {
   const [results, setResults] = useState<LabResult[] | null>(null);
+  const [facts, setFacts] = useState<Fact[]>([]);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [params, setParams] = useSearchParams();
+  const tab: Tab = (TABS.find((t) => t.key === params.get("tab"))?.key ?? "bloods") as Tab;
   const [selected, setSelected] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<LabResult | null>(null);
   const toast = useToast();
 
-  const load = useCallback(async () => setResults(await api.labs.list()), []);
+  const load = useCallback(async () => {
+    const [l, f, p] = await Promise.all([api.labs.list(), api.facts.list(), api.profile.get()]);
+    setResults(l);
+    setFacts(f);
+    setProfile(p);
+  }, []);
   useEffect(() => {
     load().catch((e) => toast(e.message, "err"));
   }, [load, toast]);
 
-  const series = useMemo(() => groupResults(results ?? []), [results]);
+  const bloods = useMemo(() => (results ?? []).filter((r) => r.panel !== BODY_PANEL), [results]);
+  const body = useMemo(() => (results ?? []).filter((r) => r.panel === BODY_PANEL), [results]);
+  const series = useMemo(() => groupResults(bloods), [bloods]);
   const current = series.find((s) => s.key === selected) ?? series[0] ?? null;
   const flagged = series.filter((s) => ["low", "high"].includes(labFlag(s.latest)));
 
@@ -70,15 +91,45 @@ export function Tests() {
   return (
     <div>
       <PageTitle
-        title="Test results"
-        subtitle="Bloods and clinic measurements from the doctor, tracked over time and included in every export."
+        title="Tests"
+        subtitle="Bloods, clinic visits, tape-measure results and genetics, tracked over time and included in every export."
         actions={
-          <button className="btn-primary" onClick={() => setAdding(true)}>
-            <Plus className="h-4 w-4" /> Add results
-          </button>
+          tab === "bloods" ? (
+            <button className="btn-primary" onClick={() => setAdding(true)}>
+              <Plus className="h-4 w-4" /> Add results
+            </button>
+          ) : null
         }
       />
 
+      <div className="mb-6 inline-flex flex-wrap rounded-full border border-line bg-paper-2 p-1" role="tablist">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            role="tab"
+            aria-selected={tab === t.key}
+            onClick={() => setParams(t.key === "bloods" ? {} : { tab: t.key })}
+            className={`relative rounded-full px-4 py-2 text-sm font-medium transition-colors ${tab === t.key ? "text-ink" : "text-ink-3 hover:text-ink"}`}
+          >
+            {tab === t.key && <motion.span layoutId="tests-tab" className="absolute inset-0 rounded-full bg-paper shadow-soft" transition={{ type: "spring", stiffness: 500, damping: 40 }} />}
+            <span className="relative">{t.label}</span>
+          </button>
+        ))}
+      </div>
+
+      {tab === "body" && results && (
+        <Body
+          results={body}
+          profile={profile}
+          onSaved={async (msg) => {
+            await load();
+            toast(msg);
+          }}
+        />
+      )}
+      {tab === "genetics" && <Genetics facts={facts} onChanged={load} />}
+
+      {tab === "bloods" && (<>
       <Card className="mb-6 flex items-start gap-3 p-4 text-sm text-ink-2">
         <Info className="mt-0.5 h-4 w-4 shrink-0 text-ink-3" />
         <p>
@@ -212,6 +263,7 @@ export function Tests() {
           </AnimatePresence>
         </div>
       )}
+      </>)}
 
       <AddResults
         open={adding}
@@ -229,108 +281,6 @@ export function Tests() {
           toast(msg);
         }}
       />
-    </div>
-  );
-}
-
-function rangeText(r: Pick<LabResult, "refLow" | "refHigh">): string {
-  if (r.refLow != null && r.refHigh != null) return `${r.refLow}–${r.refHigh}`;
-  if (r.refLow != null) return `≥ ${r.refLow}`;
-  if (r.refHigh != null) return `≤ ${r.refHigh}`;
-  return "no range";
-}
-
-function FlagDot({ flag }: { flag: LabFlag }) {
-  return <span className={`h-2 w-2 rounded-full ${flag === "normal" ? "bg-good" : flag === "unknown" ? "bg-ink-3" : "bg-warn"}`} />;
-}
-function FlagBadge({ flag }: { flag: LabFlag }) {
-  if (flag === "unknown") return null;
-  const cls = flag === "normal" ? "bg-good/12 text-good" : "bg-warn/15 text-warn";
-  return <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${cls}`}>{flag === "normal" ? "in range" : flag}</span>;
-}
-
-/** Tiny trend for the list rows. */
-function Spark({ results }: { results: LabResult[] }) {
-  const vals = results.filter((r) => r.value != null);
-  if (vals.length < 2) return <span className="w-16" />;
-  const ys = vals.map((r) => r.value!);
-  const lo = Math.min(...ys);
-  const hi = Math.max(...ys);
-  const pts = vals.map((r, i) => `${(i / (vals.length - 1)) * 60},${18 - ((r.value! - lo) / (hi - lo || 1)) * 16}`).join(" ");
-  return (
-    <svg width="64" height="20" viewBox="-2 0 64 20" className="shrink-0" aria-hidden>
-      <polyline points={pts} fill="none" stroke="var(--series-1)" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-/** Value over time, with the reference range as a soft band. */
-function LabTrend({ results }: { results: LabResult[] }) {
-  const [wrap, W] = useWidth<HTMLDivElement>(600);
-  const [hover, setHover] = useState<number | null>(null);
-  const pts = results.filter((r) => r.value != null);
-  const H = 220;
-  const padL = 44;
-  const padR = 16;
-  const padT = 12;
-  const padB = 28;
-  if (pts.length === 0) return <div className="py-8 text-center text-sm text-ink-3">No numeric values to chart</div>;
-  const latest = pts[pts.length - 1];
-  const vals = pts.map((p) => p.value!);
-  const lo0 = Math.min(...vals, latest.refLow ?? Infinity);
-  const hi0 = Math.max(...vals, latest.refHigh ?? -Infinity);
-  const pad = (hi0 - lo0) * 0.15 || Math.abs(hi0) * 0.1 || 1;
-  const lo = lo0 - pad;
-  const hi = hi0 + pad;
-  const t0 = Date.parse(pts[0].takenAt);
-  const t1 = Date.parse(latest.takenAt);
-  const span = t1 - t0 || 86_400_000;
-  const x = (t: string) => (pts.length === 1 ? padL + (W - padL - padR) / 2 : padL + ((Date.parse(t) - t0) / span) * (W - padL - padR));
-  const y = (v: number) => padT + (1 - (v - lo) / (hi - lo)) * (H - padT - padB);
-  const ticks = [lo0, (lo0 + hi0) / 2, hi0].map((v) => Math.round(v * 10) / 10);
-  const bandTop = latest.refHigh != null ? y(latest.refHigh) : padT;
-  const bandBot = latest.refLow != null ? y(latest.refLow) : H - padB;
-  const hasBand = latest.refLow != null || latest.refHigh != null;
-  const path = pts.map((p, i) => `${i ? "L" : "M"}${x(p.takenAt).toFixed(1)} ${y(p.value!).toFixed(1)}`).join(" ");
-  const hp = hover != null ? pts[hover] : null;
-
-  return (
-    <div className="relative w-full min-w-0" ref={wrap}>
-      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: H }} className="block select-none" role="img" aria-label="Result over time">
-        {hasBand && <rect x={padL} y={bandTop} width={W - padL - padR} height={Math.max(0, bandBot - bandTop)} fill="var(--good)" opacity={0.08} rx={4} />}
-        {ticks.map((v) => (
-          <g key={v}>
-            <line x1={padL} x2={W - padR} y1={y(v)} y2={y(v)} stroke="var(--line)" />
-            <text x={padL - 8} y={y(v) + 4} textAnchor="end" fontSize="11" fill="var(--ink-3)" style={{ fontFamily: "inherit" }}>
-              {v}
-            </text>
-          </g>
-        ))}
-        {pts.length > 1 && <path d={path} fill="none" stroke="var(--series-1)" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />}
-        {pts.map((p, i) => {
-          const f = labFlag(p);
-          return (
-            <g key={p.id} onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}>
-              <circle cx={x(p.takenAt)} cy={y(p.value!)} r={14} fill="transparent" />
-              <circle cx={x(p.takenAt)} cy={y(p.value!)} r={hover === i ? 6 : 4.5} fill={f === "low" || f === "high" ? "var(--warn)" : "var(--series-1)"} stroke="var(--paper)" strokeWidth={2} />
-            </g>
-          );
-        })}
-        {[pts[0], latest].filter((p, i, a) => a.indexOf(p) === i).map((p) => (
-          <text key={p.id} x={x(p.takenAt)} y={H - 8} textAnchor={p === latest && pts.length > 1 ? "end" : "start"} fontSize="11" fill="var(--ink-3)" style={{ fontFamily: "inherit" }}>
-            {p.takenAt.slice(0, 10)}
-          </text>
-        ))}
-      </svg>
-      {hp && (
-        <div className="pointer-events-none absolute -translate-x-1/2 -translate-y-full rounded-lg border border-line bg-paper px-2.5 py-1.5 text-xs shadow-soft" style={{ left: `${(x(hp.takenAt) / W) * 100}%`, top: y(hp.value!) - 10 }}>
-          <span className="font-semibold tabular-nums">
-            {hp.value} {hp.unit}
-          </span>
-          <span className="ml-2 text-ink-3">{hp.takenAt.slice(0, 10)}</span>
-        </div>
-      )}
-      {hasBand && <div className="mt-1 text-xs text-ink-3">Shaded band: reference range on your latest report.</div>}
     </div>
   );
 }

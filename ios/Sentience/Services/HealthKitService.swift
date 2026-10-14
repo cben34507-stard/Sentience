@@ -21,6 +21,13 @@ final class HealthKitService {
         (.oxygenSaturation, .percent(), "%"),
         (.bodyMass, .gramUnit(with: .kilo), "kg"),
         (.respiratoryRate, HKUnit.count().unitDivided(by: .minute()), "count/min"),
+        // Food apps (MyFitnessPal, Lose It, Cronometer) write these into Apple Health.
+        (.dietaryEnergyConsumed, .kilocalorie(), "kcal"),
+        (.dietaryProtein, .gram(), "g"),
+        (.dietaryCarbohydrates, .gram(), "g"),
+        (.dietaryFatTotal, .gram(), "g"),
+        (.dietaryWater, .literUnit(with: .milli), "mL"),
+        (.dietaryCaffeine, .gramUnit(with: .milli), "mg"),
     ]
 
     /// Types Sentience may write test results into.

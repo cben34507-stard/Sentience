@@ -163,6 +163,9 @@ const METRIC_OPTIONS: SelectOption[] = [
     group: "Timeline",
     icon: <CategoryIcon category={c} />,
   })),
+  { value: "data:water_ml", label: "Water drunk", hint: "ml, from the Food page", group: "Food & water", icon: <PencilLine className="h-4 w-4" /> },
+  { value: "data:kcal", label: "Calories eaten", hint: "kcal, from the Food page", group: "Food & water", icon: <PencilLine className="h-4 w-4" /> },
+  { value: "data:protein_g", label: "Protein eaten", hint: "g, from the Food page", group: "Food & water", icon: <PencilLine className="h-4 w-4" /> },
   ...Object.entries(HEALTH_TYPE_META).map(([k, m]) => ({
     value: `health:${k}`,
     label: m.label,
@@ -179,6 +182,9 @@ function metricLabel(metric: string): string {
     return `${EVENT_CATEGORY_META[c]?.label ?? c} events`;
   }
   if (metric.startsWith("health:")) return HEALTH_TYPE_META[metric.slice(7)]?.label ?? metric.slice(7);
+  if (metric === "data:water_ml") return "water drunk";
+  if (metric === "data:kcal") return "calories eaten";
+  if (metric === "data:protein_g") return "protein eaten";
   return metric;
 }
 
@@ -210,6 +216,9 @@ function GoalForm({ open, editing, onClose, onSaved }: { open: boolean; editing:
     setMetric(m);
     if (m.startsWith("health:")) setUnit(HEALTH_TYPE_META[m.slice(7)]?.unit ?? "");
     else if (m.startsWith("events:")) setUnit("times");
+    else if (m === "data:water_ml") setUnit("ml");
+    else if (m === "data:kcal") setUnit("kcal");
+    else if (m === "data:protein_g") setUnit("g");
   };
 
   const submit = async (e: React.FormEvent) => {

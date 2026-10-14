@@ -45,11 +45,12 @@ Xcode will sign with a free Apple ID if you **remove the HealthKit capability**.
 
 ## Option 4 — the web app, today, no install
 
-The web app works in Safari on the phone. Open the server address (for example `http://192.168.1.20:4477`), tap **Share → Add to Home Screen**, and it opens full-screen like an app. It can log everything, but it can't touch Apple Health. Use Option 1 for that, or keep importing `export.zip` from the Health page.
+The web app works in Safari on the phone. Open the server address (for example `http://192.168.1.20:4477`), tap **Share → Add to Home Screen**, and it opens full-screen like an app. It can log everything, including food and water, but it can't touch Apple Health. Use Option 1 for that, or keep importing `export.zip` from the Health page.
 
 ## After it's installed
 
 1. Start the server on the mini PC; it prints a `network http://192.168.x.x:4477` line.
-2. In the app's **Sync** tab, paste that address and tap *Test connection*.
-3. Turn on **Send Apple Health data** and **Write test results to Apple Health**, and allow the prompts.
-4. Tap *Sync now*. From then on it syncs whenever you open the app at home.
+2. On the web app, open **Settings → Devices → Add device**, name it "iPhone" and copy the token (it is shown once).
+3. In the app's **Sync** tab, paste the server address and the token, then tap *Test connection*. It should say "Connected and signed in". (If you set up Tailscale per [SECURITY.md](SECURITY.md), use the `https://….ts.net` address instead.)
+4. Turn on **Send Apple Health data** and **Write test results to Apple Health**, and allow the prompts.
+5. Tap *Sync now*. From then on it syncs whenever you open the app at home.

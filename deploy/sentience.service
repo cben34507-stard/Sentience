@@ -15,6 +15,20 @@ Environment=NODE_ENV=production
 Environment=PORT=4477
 Environment=HOST=0.0.0.0
 Environment=SENTIENCE_DATA_DIR=/opt/sentience/server/data
+# After `npm run db:encrypt --workspace=server`, move data/db.key to /etc/sentience/db.key
+# (owned by sentience, mode 600) and uncomment:
+#Environment=SENTIENCE_DB_KEY_FILE=/etc/sentience/db.key
+# Behind Tailscale serve, listen on loopback only:
+#Environment=HOST=127.0.0.1
+# Optional AI features:
+#Environment=ANTHROPIC_API_KEY=
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/sentience/server/data
+UMask=0077
 ExecStart=/usr/bin/node server/dist/index.js
 Restart=on-failure
 RestartSec=3
