@@ -39,7 +39,7 @@ Xcode will sign with a free Apple ID if you **remove the HealthKit capability**.
 
 ## Option 3 — no Mac
 
-- **GitHub Actions builds the app for you.** Every push that touches `ios/` runs the **CI** workflow on a macOS runner. It compiles the app and uploads an unsigned `Sentience-unsigned.ipa` artifact (Actions tab → latest run → Artifacts). macOS minutes count 10x against a private repo's free allowance, so it only runs when the iOS code changes.
+- **GitHub Actions builds the app for you.** Every push that touches `ios/` runs the **iOS** workflow on a macOS runner. It compiles the app and uploads an unsigned `Sentience-unsigned.ipa` artifact (Actions tab → latest run → Artifacts). macOS minutes count 10x against a private repo's free allowance, so it only runs when the iOS code changes.
 - **Sign and install that IPA from Windows or Linux** with Sideloadly or AltStore using your Apple ID. With a paid developer account they keep HealthKit. With a free Apple ID HealthKit is stripped and the app expires after 7 days, as in option 2.
 - **Fully automated TestFlight from CI** is possible with a paid account by adding an App Store Connect API key to the repo's secrets and an upload step. Ask for it when you have the account.
 

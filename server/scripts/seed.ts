@@ -27,10 +27,10 @@ updateProfile(db, {
   timezone: tz,
   bio: "Works from home three days a week. Trying to get a steadier morning and sleep before midnight.",
 });
-createFact(db, { kind: "condition", key: "ADHD", value: "Diagnosed 2019. Combined type.", source: "Psychiatrist letter", recordedOn: "2019-03-02" });
-createFact(db, { kind: "medication", key: "Methylphenidate", value: "20 mg modified-release, mornings with breakfast.", source: null, recordedOn: null });
-createFact(db, { kind: "genetic", key: "rs762551", value: "AC — CYP1A2: slow-ish caffeine metaboliser", source: "23andMe raw data", recordedOn: null });
-createFact(db, { kind: "lab", key: "Vitamin D (25-OH)", value: "48 nmol/L (ref 50–125) — borderline low", source: "GP bloods", recordedOn: "2026-09-10" });
+// Fictional demo record. Nothing here describes a real person.
+createFact(db, { kind: "condition", key: "Hay fever (demo)", value: "Seasonal, spring and early summer.", source: "Demo data", recordedOn: "2020-04-01" });
+createFact(db, { kind: "medication", key: "Cetirizine (demo)", value: "10 mg in the morning during pollen season.", source: "Demo data", recordedOn: null });
+createFact(db, { kind: "preference", key: "Chronotype (demo)", value: "Prefers mornings; sleepy by 22:30.", source: "Demo data", recordedOn: null });
 
 const today = new Date();
 const iso = (d: string, h: number, m = 0) => {
@@ -51,7 +51,7 @@ for (let i = 13; i >= 0; i--) {
   createEvent(db, { category: "hygiene", title: "Brushed teeth", startAt: iso(d, lateNight ? 8 : 7, 45), source: "import" });
   createEvent(db, { category: "meal", title: i % 2 ? "Porridge, banana, coffee" : "Eggs on toast, coffee", startAt: iso(d, 8, 20), tags: ["breakfast"], data: { kcal: 480 + Math.round(rnd(-60, 90)) }, source: "import" });
   createEvent(db, { category: "supplement", title: "Vitamin D + omega-3", startAt: iso(d, 8, 25), source: "import" });
-  createEvent(db, { category: "medication", title: "Methylphenidate 20 mg", startAt: iso(d, 8, 30), source: "import" });
+  createEvent(db, { category: "medication", title: "Cetirizine 10 mg", startAt: iso(d, 8, 30), source: "import" });
   if (i % 7 < 5) {
     createEvent(db, { category: "movement", title: "Left the house", startAt: iso(d, 9, 5), source: "import" });
     createEvent(db, { category: "work", title: "Deep work block", startAt: iso(d, 9, 45), endAt: iso(d, 12, 30), rating: Math.round(rnd(5, 9)), source: "import" });

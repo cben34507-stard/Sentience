@@ -1,0 +1,44 @@
+name: iOS
+
+# Compiles the iPhone app on a macOS runner and uploads an unsigned .ipa.
+# Runs only when the app (or this file) changes, since macOS minutes cost
+# 10x on private repositories.
+on:
+  push:
+    paths: ["ios/**", ".github/workflows/ios.yml"]
+  pull_request:
+    paths: ["ios/**", ".github/workflows/ios.yml"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate project
+        working-directory: ios
+        run: xcodegen generate
+      - name: Build for simulator (compile check)
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild -project Sentience.xcodeproj -scheme Sentience \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -configuration Debug CODE_SIGNING_ALLOWED=NO build | tail -n 80
+      - name: Build unsigned device archive
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild -project Sentience.xcodeproj -scheme Sentience -sdk iphoneos \
+            -configuration Release -archivePath build/Sentience.xcarchive \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO archive | tail -n 40
+          mkdir -p build/Payload
+          cp -R build/Sentience.xcarchive/Products/Applications/Sentience.app build/Payload/
+          cd build && zip -qr Sentience-unsigned.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Sentience-unsigned-ipa
+          path: ios/build/Sentience-unsigned.ipa
+          retention-days: 14
