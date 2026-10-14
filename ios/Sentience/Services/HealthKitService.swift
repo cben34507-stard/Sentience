@@ -38,7 +38,7 @@ final class HealthKitService {
         if let sleep = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) { read.insert(sleep) }
         read.insert(HKObjectType.workoutType())
         // Correlations can't be requested for sharing; their member types can.
-        let share = write ? Self.writableTypes.filter { !($0 is HKCorrelationType) } : []
+        let share: Set<HKSampleType> = write ? Self.writableTypes.filter { !($0 is HKCorrelationType) } : []
         try await store.requestAuthorization(toShare: share, read: read)
     }
 
