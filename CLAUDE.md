@@ -22,3 +22,5 @@
 - Page transitions are a keyed CSS animation (`.page-enter` in `index.css`), not `AnimatePresence mode="wait"`: an exit that never finishes left pages blank. Don't reintroduce wait-mode presence around routed content.
 - Reminder doses are events (`data.reminder_id/reminder_date/reminder_time`), not a separate table; supplement facts live in `SUPPLEMENTS` (shared), lab explanations in `LAB_INFO` (shared, one entry per `LAB_TESTS` key).
 - The Patient Access importer (`server/src/services/patientAccess.ts`) must never read `<Source>/<User>`; tests use a synthetic record. Real GP exports are gitignored.
+- The real server goes through `root.ts` + `lib/locker.ts` (database can be locked); `createApp(db)` is the unlocked app for tests. Any route that changes passwords or device sessions must call the matching `sec.locker?.…` hook so the vault's wrapped keys stay in step.
+- React effects always use a block body (`useEffect(() => { … })`): an expression body returns its value as the cleanup, and `scrollTo` returns a Promise in newer browsers. `npm test` enforces this (`scripts/check-effects.mjs`).

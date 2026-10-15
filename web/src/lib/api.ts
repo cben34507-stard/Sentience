@@ -37,7 +37,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       ...(init?.headers ?? {}),
     },
   });
-  if (res.status === 401 && !path.startsWith("/auth/")) window.dispatchEvent(new CustomEvent("sentience:unauthorized"));
+  // 401: session gone. 423: the server was locked (restart or "Lock now"); both mean sign in again.
+  if ((res.status === 401 || res.status === 423) && !path.startsWith("/auth/")) window.dispatchEvent(new CustomEvent("sentience:unauthorized"));
   if (res.status === 204) return undefined as T;
   const text = await res.text();
   const body = text ? JSON.parse(text) : null;
@@ -145,8 +146,9 @@ export interface CheckupItem {
 
 export const api = {
   auth: {
-    status: () => get<{ configured: boolean; authenticated: boolean; kind: string | null; https: boolean }>("/auth/status"),
-    setup: (code: string, password: string) => post<{ ok: true }>("/auth/setup", { code, password }),
+    status: () => get<{ configured: boolean; authenticated: boolean; kind: string | null; https: boolean; locked: boolean; vault: boolean }>("/auth/status"),
+    setup: (code: string, password: string) => post<{ ok: true; recoveryKey?: string }>("/auth/setup", { code, password }),
+    recover: (recoveryKey: string, password: string) => post<{ ok: true }>("/auth/recover", { recoveryKey, password }),
     login: (password: string) => post<{ ok: true }>("/auth/login", { password }),
     logout: () => post<{ ok: true }>("/auth/logout", {}),
     sessions: () => get<SessionRow[]>("/auth/sessions"),
@@ -154,7 +156,12 @@ export const api = {
     addDevice: (name: string) => post<{ id: string; name: string; token: string }>("/auth/devices", { name }),
     changePassword: (current: string, next: string) => put<{ ok: true }>("/auth/password", { current, next }),
   },
-  checkup: () => get<{ items: CheckupItem[]; dbKeyConfigured: boolean; tls: boolean }>("/security/checkup"),
+  checkup: () => get<{ items: CheckupItem[]; dbKeyConfigured: boolean; tls: boolean; vault: boolean }>("/security/checkup"),
+  vault: {
+    lock: () => post<{ ok: true }>("/security/lock", {}),
+    enable: (password: string) => post<{ recoveryKey: string }>("/security/vault", { password }),
+    newRecoveryKey: (password: string) => post<{ recoveryKey: string }>("/security/recovery-key", { password }),
+  },
 
   stats: () => get<Stats>("/stats"),
   day: (date: string) => get<DayView>(`/day?date=${date}`),

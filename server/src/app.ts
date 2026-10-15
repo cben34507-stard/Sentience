@@ -28,14 +28,11 @@ const CSP = [
   "form-action 'self'",
 ].join("; ");
 
-export function createApp({ db, uploadDir, staticDir, security }: AppOptions): express.Express {
-  fs.mkdirSync(uploadDir, { recursive: true, mode: 0o700 });
-  const sec: SecurityContext = { dbFile: ":memory:", dbKeyConfigured: false, host: "0.0.0.0", tls: false, ...security };
-  const app = express();
+/** Headers, body parsing and proxy trust shared by every mode. */
+export function applyBase(app: express.Express): void {
   app.disable("x-powered-by");
   // Trust X-Forwarded-* only from a proxy on this machine (Tailscale serve, Caddy).
   app.set("trust proxy", "loopback");
-
   app.use((req, res, next) => {
     res.setHeader("Content-Security-Policy", CSP);
     res.setHeader("X-Content-Type-Options", "nosniff");
@@ -49,13 +46,23 @@ export function createApp({ db, uploadDir, staticDir, security }: AppOptions): e
     next();
   });
   app.use(express.json({ limit: "20mb" }));
+}
 
+export const PUBLIC_PATHS = ["/health-check", "/auth/status", "/auth/setup", "/auth/login"];
+
+/** Everything under /api for an open database. */
+export function buildApi(db: DB, uploadDir: string, sec: SecurityContext): express.Router {
+  const api = express.Router();
   // Public: sign-in endpoints and a liveness check. Everything else needs a session.
-  app.use("/api", buildAuthRouter(db, sec));
-  app.use("/api", requireAuth(db, ["/health-check", "/auth/status", "/auth/setup", "/auth/login"]));
-  app.use("/api", buildAccountRouter(db, sec));
-  app.use("/api", buildRouter(db, uploadDir));
+  api.use(buildAuthRouter(db, sec));
+  api.use(requireAuth(db, PUBLIC_PATHS));
+  api.use(buildAccountRouter(db, sec));
+  api.use(buildRouter(db, uploadDir));
+  return api;
+}
 
+/** The built web app, with client-side routing falling back to index.html. */
+export function applyStatic(app: express.Express, staticDir?: string): void {
   if (staticDir && fs.existsSync(path.join(staticDir, "index.html"))) {
     app.use(express.static(staticDir, { maxAge: "1h", index: false }));
     app.get("*", (req, res, next) => {
@@ -63,7 +70,15 @@ export function createApp({ db, uploadDir, staticDir, security }: AppOptions): e
       res.sendFile(path.join(staticDir, "index.html"));
     });
   }
+}
 
+export function createApp({ db, uploadDir, staticDir, security }: AppOptions): express.Express {
+  fs.mkdirSync(uploadDir, { recursive: true, mode: 0o700 });
+  const sec: SecurityContext = { dbFile: ":memory:", dbKeyConfigured: false, host: "0.0.0.0", tls: false, ...security };
+  const app = express();
+  applyBase(app);
+  app.use("/api", buildApi(db, uploadDir, sec));
+  applyStatic(app, staticDir);
   app.use(errorMiddleware);
   return app;
 }

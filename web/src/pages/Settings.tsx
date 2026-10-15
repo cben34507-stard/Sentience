@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { CircleCheck, CircleHelp, Copy, KeyRound, LogOut, Monitor, Plus, ShieldAlert, Smartphone, Sparkles, Trash2 } from "lucide-react";
+import { CircleCheck, CircleHelp, Copy, KeyRound, Lock, LogOut, Monitor, Plus, ShieldAlert, ShieldCheck, Smartphone, Sparkles, Trash2 } from "lucide-react";
+import { RecoveryKeyNotice } from "../components/AuthGate";
 import { api, type CheckupItem, type SessionRow } from "../lib/api";
 import { Card, Field, Modal, PageTitle, SectionTitle, Spinner, useToast } from "../components/ui";
 
@@ -7,12 +8,14 @@ export function Settings() {
   const [checkup, setCheckup] = useState<CheckupItem[] | null>(null);
   const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [ai, setAi] = useState<{ enabled: boolean; source: "env" | "settings" | null; model: string } | null>(null);
+  const [vault, setVault] = useState<boolean | null>(null);
   const [newDevice, setNewDevice] = useState<{ open: boolean; name: string; token?: string }>({ open: false, name: "" });
   const toast = useToast();
 
   const load = useCallback(async () => {
     const [c, s, a] = await Promise.all([api.checkup(), api.auth.sessions(), api.ai.status()]);
     setCheckup(c.items);
+    setVault(c.vault);
     setSessions(s);
     setAi(a);
   }, []);
@@ -109,6 +112,7 @@ export function Settings() {
         </div>
 
         <div className="space-y-6">
+          <VaultCard vault={vault} onChanged={load} />
           <PasswordCard />
           <AiCard ai={ai} onChange={setAi} />
         </div>
@@ -220,7 +224,7 @@ function AiCard({ ai, onChange }: { ai: { enabled: boolean; source: "env" | "set
             }
           }}
         >
-          <Field label="Anthropic API key" hint="Create one at console.anthropic.com. It's stored in your database, which is encrypted once you enable database encryption.">
+          <Field label="Anthropic API key" hint="Create one at console.anthropic.com. It's stored inside your encrypted database.">
             <input className="field font-mono text-xs" type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)} placeholder="sk-ant-…" required />
           </Field>
           {err && <div className="rounded-xl bg-bad/10 px-3 py-2 text-sm text-bad">{err}</div>}
@@ -229,6 +233,97 @@ function AiCard({ ai, onChange }: { ai: { enabled: boolean; source: "env" | "set
           </div>
         </form>
       )}
+    </Card>
+  );
+}
+
+/** Password locking: the database key exists only wrapped by your password, recovery key and devices. */
+function VaultCard({ vault, onChanged }: { vault: boolean | null; onChanged: () => void }) {
+  const [mode, setMode] = useState<null | "enable" | "recovery">(null);
+  const [pw, setPw] = useState("");
+  const [key, setKey] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const close = () => {
+    setMode(null);
+    setPw("");
+    setKey(null);
+    setErr(null);
+    onChanged();
+  };
+  if (vault == null) return null;
+  return (
+    <Card className="p-5">
+      <SectionTitle>Data lock</SectionTitle>
+      {vault ? (
+        <div className="space-y-3 text-sm">
+          <p className="flex items-start gap-2 text-ink-2">
+            <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-good" />
+            Locked with your password. The key to your database is only stored wrapped by your password, your recovery key and your paired devices, so the disk on its own (a stolen mini PC, a copied backup) is unreadable. After a restart nothing can be read until you sign in or your phone syncs.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button
+              className="btn-primary"
+              onClick={async () => {
+                await api.vault.lock();
+                window.location.reload();
+              }}
+            >
+              <Lock className="h-4 w-4" /> Lock now
+            </button>
+            <button className="btn-ghost border border-line" onClick={() => setMode("recovery")}>
+              <KeyRound className="h-4 w-4" /> New recovery key
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-3 text-sm">
+          <p className="text-ink-2">
+            Right now the server can open your database by itself, so whoever has the disk has your data. Locking with your password works like Apple's Advanced Data Protection: the database is re-encrypted with a new key that only your password (or a recovery key) can unwrap, and the server forgets it whenever it restarts.
+          </p>
+          <button className="btn-primary" onClick={() => setMode("enable")}>
+            <Lock className="h-4 w-4" /> Lock with my password
+          </button>
+        </div>
+      )}
+
+      <Modal open={!!mode} onClose={close} title={mode === "enable" ? "Lock with your password" : "New recovery key"}>
+        {key ? (
+          <RecoveryKeyNotice recoveryKey={key} onDone={close} doneLabel="Done" />
+        ) : (
+          <form
+            className="space-y-4"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setBusy(true);
+              setErr(null);
+              try {
+                const res = mode === "enable" ? await api.vault.enable(pw) : await api.vault.newRecoveryKey(pw);
+                setKey(res.recoveryKey);
+              } catch (e2) {
+                setErr(e2 instanceof Error ? e2.message : "Failed");
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            <p className="text-sm text-ink-2">
+              {mode === "enable"
+                ? "Your database is re-encrypted in place; this takes a few seconds. Afterwards, every restart needs your password (your paired iPhone unlocks it too). If you used a key file before, remove SENTIENCE_DB_KEY_FILE afterwards and delete the old key."
+                : "Your old recovery key stops working as soon as the new one is made."}
+            </p>
+            <Field label="Your password">
+              <input className="field" type="password" autoComplete="current-password" value={pw} onChange={(e) => setPw(e.target.value)} autoFocus required />
+            </Field>
+            {err && <p className="text-sm text-bad">{err}</p>}
+            <div className="flex justify-end">
+              <button className="btn-primary" disabled={busy || !pw}>
+                {busy ? <Spinner /> : <Lock className="h-4 w-4" />} {mode === "enable" ? "Lock it" : "Make new key"}
+              </button>
+            </div>
+          </form>
+        )}
+      </Modal>
     </Card>
   );
 }

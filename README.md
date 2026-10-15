@@ -38,7 +38,7 @@ A personal life tracker you run yourself. Log what you did through the day on a 
 - **Goals** — daily/weekly/monthly/once. Measured by hand, by counting timeline events (3 workouts a week), or straight from Apple Health (8,000 steps a day). Streaks included.
 - **Achievements** — a dozen to unlock, computed from your data.
 - **Export** — JSON or Markdown for any range. The Markdown is written for pasting into a chat: profile, record, goals, each day's health rollup, the timeline with heart rate context per event, and hourly HR/steps tables.
-- **Security** — password login, per-device tokens for the iPhone, encrypted database, HTTPS, and a checkup page that tells you what's still open. See [`docs/SECURITY.md`](docs/SECURITY.md).
+- **Security** — your password is the key: the database is encrypted with a key that's only stored wrapped by your password, a recovery key and your paired devices, so the server can't read anything after a restart until you unlock it, and a stolen disk or backup is useless. Plus per-device tokens, HTTPS, and a checkup page that tells you what's still open. See [`docs/SECURITY.md`](docs/SECURITY.md).
 - **Strands** — the intro: braided timeline strands around the wordmark that stretch out to both edges and settle as a moving ribbon along the top of the app (click the logo to replay). The threads drift between purple and blue over time. Icons throughout, no emoji.
 
 ## Quick start (laptop or mini PC)
@@ -52,7 +52,7 @@ npm start              # http://localhost:4477
 
 The server prints a `network http://192.168.x.x:4477` line — that's the address for your phone and for other devices on the Wi-Fi. On first run it also prints a **setup code**: open the app, enter it, and choose a password. For the iPhone, create a device token under Settings → Devices and paste it into the app.
 
-Then read [`docs/SECURITY.md`](docs/SECURITY.md) and do the three steps there (password, database encryption, HTTPS).
+You'll be shown a **recovery key** once; save it in your password manager. Then read [`docs/SECURITY.md`](docs/SECURITY.md) (password lock, recovery, HTTPS).
 
 Want something to look at first?
 

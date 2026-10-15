@@ -363,3 +363,11 @@ export function encryptDatabaseFile(file: string, newKey: string, currentKey?: s
   db.pragma("journal_mode = WAL");
   db.close();
 }
+
+/** Changes the key of an open database in place (plain → encrypted works too). */
+export function rekeyOpenDatabase(db: DB, newKey: string): void {
+  db.pragma("wal_checkpoint(TRUNCATE)");
+  db.pragma("journal_mode = DELETE");
+  db.pragma(`rekey=${quote(newKey)}`);
+  db.pragma("journal_mode = WAL");
+}

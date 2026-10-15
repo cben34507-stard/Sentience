@@ -4,9 +4,9 @@ import https from "node:https";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createApp } from "./app.js";
-import { isFileEncrypted, openDatabase } from "./lib/db.js";
+import { createRootApp } from "./root.js";
 import { isConfigured, issueSetupCode } from "./lib/auth.js";
+import { Locker } from "./lib/locker.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..");
@@ -27,10 +27,10 @@ function readKey(): string | null {
 }
 
 const key = readKey();
-const db = openDatabase(DB_FILE, key);
+const locker = new Locker(DB_FILE, key, { vaultForNewInstalls: process.env.SENTIENCE_VAULT !== "off" });
 const tls = !!(TLS_CERT && TLS_KEY);
-const app = createApp({
-  db,
+const app = createRootApp({
+  locker,
   uploadDir: path.join(DATA_DIR, "uploads"),
   staticDir: STATIC_DIR,
   security: { dbFile: DB_FILE, dbKeyConfigured: !!key, host: HOST, tls },
@@ -44,16 +44,19 @@ server.listen(PORT, HOST, () => {
     .flat()
     .filter((i): i is os.NetworkInterfaceInfo => !!i && i.family === "IPv4" && !i.internal)
     .map((i) => `${scheme}://${i.address}:${PORT}`);
-  console.log(`\n  Sentience server\n  database  ${DB_FILE} (${isFileEncrypted(DB_FILE) ? "encrypted" : "NOT encrypted"})\n  local     ${scheme}://localhost:${PORT}`);
+  const lockText =
+    locker.state === "setup" ? "new; it will be locked with the password you choose" : locker.mode === "vault" ? "locked until you sign in" : locker.encryptedOnDisk ? "encrypted with a key file" : "NOT encrypted: lock it with your password in Settings";
+  console.log(`\n  Sentience server\n  database  ${DB_FILE} (${lockText})\n  local     ${scheme}://localhost:${PORT}`);
   if (HOST === "0.0.0.0") for (const a of addrs) console.log(`  network   ${a}   <- use this in the iOS app`);
   if (!tls) console.log("  warning   plain HTTP: see docs/SECURITY.md to add HTTPS (Tailscale serve is easiest)");
-  if (!isConfigured(db)) {
+  if (locker.state === "setup" || (locker.db && !isConfigured(locker.db))) {
     console.log(`\n  First run: open the app and enter this setup code to choose your password:\n\n      ${issueSetupCode()}\n`);
   }
   console.log("");
 });
 
-process.on("SIGINT", () => {
-  db.close();
-  process.exit(0);
-});
+for (const sig of ["SIGINT", "SIGTERM"] as const)
+  process.on(sig, () => {
+    locker.close();
+    process.exit(0);
+  });

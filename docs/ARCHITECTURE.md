@@ -86,9 +86,14 @@ The iOS preset list is generated from the shared one: `node scripts/gen-ios-pres
 
 `server/src/lib/auth.ts`. One password per install (scrypt, stored in `auth_config`). Browsers get a 30-day sliding session cookie; the iPhone uses a device token sent as `Authorization: Bearer snt_…`. Both live in `sessions`, keyed by the SHA-256 of the token, so a copy of the database can't be used to log in. `requireAuth` runs in front of every `/api` route except the health check and the login routes. Cookie-authenticated writes must also send `X-Sentience: 1`, which the web client adds and a cross-site form cannot. There is no CORS middleware on purpose. Details and the deployment checklist: [SECURITY.md](SECURITY.md).
 
-## Encryption at rest
+## Encryption at rest and the lock
 
-The server opens the database through `better-sqlite3-multiple-ciphers`, a drop-in build of better-sqlite3 with SQLite3 Multiple Ciphers compiled in. With `SENTIENCE_DB_KEY(_FILE)` set, `openDatabase` issues `PRAGMA key` and probes a query, so a wrong key fails at startup instead of later. `isFileEncrypted` reads the file header (a plain SQLite file starts with `SQLite format 3`). `npm run db:encrypt --workspace=server` converts an existing file in place with `PRAGMA rekey`.
+The server opens the database through `better-sqlite3-multiple-ciphers` (SQLite3 Multiple Ciphers compiled in). `lib/locker.ts` owns the connection:
+
+- **vault mode** (default for new installs): `lib/vault.ts` keeps the random data key only as AES-256-GCM wraps under keys derived from the password (scrypt), the recovery key and each device token (HKDF). The process starts locked; `root.ts` answers only sign-in, recovery and the health check until a wrap is opened. A request carrying a paired device's Bearer token unlocks transparently. `POST /security/lock` closes the database and drops the key.
+- **key mode**: `SENTIENCE_DB_KEY(_FILE)`; **plain mode**: no key. Both can be converted in place with `POST /security/vault` (`PRAGMA rekey` on the open connection).
+
+`createApp(db)` is the unlocked app on its own (used by tests); `createRootApp(locker)` wraps it with the lock.
 
 ## Food
 

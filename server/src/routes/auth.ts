@@ -7,12 +7,15 @@ import { isFileEncrypted } from "../lib/db.js";
 import { HttpError, parse, wrap } from "../lib/http.js";
 import * as auth from "../lib/auth.js";
 import { aiStatus } from "../services/ai.js";
+import type { Locker } from "../lib/locker.js";
 
 export interface SecurityContext {
   dbFile: string;
   dbKeyConfigured: boolean;
   host: string;
   tls: boolean;
+  /** Present when the server manages lock state (the real server, not tests). */
+  locker?: Locker;
 }
 
 const ip = (req: Request) => req.ip ?? req.socket.remoteAddress ?? "unknown";
@@ -24,7 +27,7 @@ export function buildAuthRouter(db: DB, sec: SecurityContext): Router {
     const bearer = /^Bearer\s+(.+)$/i.exec(req.headers.authorization ?? "")?.[1];
     const token = bearer ?? auth.readCookie(req, auth.COOKIE);
     const s = token ? auth.lookup(db, token) : null;
-    res.json({ configured: auth.isConfigured(db), authenticated: !!s, kind: s?.kind ?? null, https: req.secure });
+    res.json({ configured: auth.isConfigured(db), authenticated: !!s, kind: s?.kind ?? null, https: req.secure, locked: false, vault: sec.locker?.mode === "vault" });
   });
 
   r.post("/auth/setup", wrap((req, res) => {
@@ -73,6 +76,7 @@ export function buildAccountRouter(db: DB, sec: SecurityContext): Router {
 
   r.delete("/auth/sessions/:id", wrap((req, res) => {
     if (!auth.revokeSession(db, req.params.id)) throw new HttpError(404, "Not found");
+    sec.locker?.sessionsChanged();
     if (req.params.id === req.session?.id) auth.clearSessionCookie(res);
     res.status(204).end();
   }));
@@ -80,6 +84,7 @@ export function buildAccountRouter(db: DB, sec: SecurityContext): Router {
   r.post("/auth/devices", wrap((req, res) => {
     const { name } = parse(z.object({ name: z.string().trim().min(1).max(60) }), req.body);
     const { token, id } = auth.createSession(db, "device", { name, ip: ip(req) });
+    sec.locker?.deviceAdded(token, name);
     res.status(201);
     return { id, name, token };
   }));
@@ -88,9 +93,40 @@ export function buildAccountRouter(db: DB, sec: SecurityContext): Router {
     const { current, next } = parse(z.object({ current: z.string().min(1), next: z.string().min(10).max(200) }), req.body);
     if (!auth.checkPassword(db, current)) throw new HttpError(401, "Current password is wrong.");
     auth.setPassword(db, next);
+    sec.locker?.passwordChanged(next);
     // A new password signs out every other browser and device.
     auth.revokeAllExcept(db, req.session?.id ?? null);
+    sec.locker?.sessionsChanged();
     return { ok: true };
+  }));
+
+  /* ---------------- vault ---------------- */
+
+  /** Close the database and forget the key until someone signs in again. */
+  r.post("/security/lock", wrap((_req, res) => {
+    if (sec.locker?.mode !== "vault") throw new HttpError(409, "Turn on password locking first.");
+    auth.clearSessionCookie(res);
+    res.on("finish", () => sec.locker?.lock());
+    return { ok: true };
+  }));
+
+  /** Older installs: move to password locking. Returns the recovery key, once. */
+  r.post("/security/vault", wrap((req) => {
+    if (!sec.locker) throw new HttpError(501, "Not available here.");
+    if (sec.locker.mode === "vault") throw new HttpError(409, "Already locked with your password.");
+    const { password } = parse(z.object({ password: z.string().min(1).max(200) }), req.body);
+    const recoveryKey = sec.locker.enableVault(password);
+    if (!recoveryKey) throw new HttpError(401, "Wrong password.");
+    // Devices paired before this point re-wrap themselves on their next sync.
+    return { recoveryKey };
+  }));
+
+  r.post("/security/recovery-key", wrap((req) => {
+    if (sec.locker?.mode !== "vault") throw new HttpError(409, "Turn on password locking first.");
+    const { password } = parse(z.object({ password: z.string().min(1).max(200) }), req.body);
+    const recoveryKey = sec.locker.newRecoveryKey(password);
+    if (!recoveryKey) throw new HttpError(401, "Wrong password.");
+    return { recoveryKey };
   }));
 
   r.get("/security/checkup", wrap((req) => {
@@ -115,11 +151,21 @@ export function buildAccountRouter(db: DB, sec: SecurityContext): Router {
         fix: "Install Tailscale on the mini PC and phone, then run `tailscale serve --bg 4477`. Or set SENTIENCE_TLS_CERT and SENTIENCE_TLS_KEY.",
       },
       {
+        id: "vault",
+        ok: sec.locker ? sec.locker.mode === "vault" : null,
+        title: sec.locker?.mode === "vault" ? "Locked with your password" : "Not locked with your password",
+        detail:
+          sec.locker?.mode === "vault"
+            ? "The database key is only stored wrapped by your password, your recovery key and your paired devices. After a restart the server can't read anything until one of them unlocks it. A stolen disk or copied backup is unreadable."
+            : "The server can open the database on its own (with a key file, or no key at all), so whoever has the disk has everything.",
+        fix: "Settings → Security → Lock with my password.",
+      },
+      {
         id: "db",
         ok: encrypted,
         title: encrypted ? "Database is encrypted at rest" : encrypted === false ? "Database file is not encrypted" : "Database location unknown",
         detail: encrypted ? "The SQLite file is unreadable without your key, including backups and copies." : "Someone with the disk or a copy of the file could read everything in it.",
-        fix: "Stop the server, run `npm run db:encrypt --workspace=server`, keep the printed key safe, and start with SENTIENCE_DB_KEY_FILE pointing to it.",
+        fix: "Lock with your password (below), which encrypts it too.",
       },
       { id: "dir", ok: dirPrivate, title: dirPrivate ? "Data folder is private to the server user" : "Data folder is readable by other users", detail: dataDir, fix: `chmod 700 ${dataDir}` },
       { id: "cors", ok: true, title: "Other websites can't read your data", detail: "No cross-origin access is allowed, and cookie writes need a custom header that only this app sends." },
@@ -134,7 +180,7 @@ export function buildAccountRouter(db: DB, sec: SecurityContext): Router {
       { id: "sessions", ok: null, title: `${sessions.filter((s) => s.kind === "browser").length} browser sessions, ${sessions.filter((s) => s.kind === "device").length} device tokens`, detail: "Review and revoke anything you don't recognise below." },
       { id: "ai", ok: null, title: ai.enabled ? "AI features are on" : "AI features are off", detail: ai.enabled ? "Only the meal description/photo or the export you assess is sent to Anthropic, per request." : "Nothing is sent to any outside service." },
     ];
-    return { items, dbKeyConfigured: sec.dbKeyConfigured, tls: sec.tls };
+    return { items, dbKeyConfigured: sec.dbKeyConfigured, tls: sec.tls, vault: sec.locker?.mode === "vault" };
   }));
 
   return r;

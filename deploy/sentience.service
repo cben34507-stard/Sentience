@@ -15,8 +15,10 @@ Environment=NODE_ENV=production
 Environment=PORT=4477
 Environment=HOST=0.0.0.0
 Environment=SENTIENCE_DATA_DIR=/opt/sentience/server/data
-# After `npm run db:encrypt --workspace=server`, move data/db.key to /etc/sentience/db.key
-# (owned by sentience, mode 600) and uncomment:
+# The database is locked with your password by default (docs/SECURITY.md); after a
+# restart it stays locked until you sign in or your iPhone syncs.
+# Older key-file setup only: after `npm run db:encrypt --workspace=server`, move
+# data/db.key to /etc/sentience/db.key (owner sentience, mode 600) and uncomment:
 #Environment=SENTIENCE_DB_KEY_FILE=/etc/sentience/db.key
 # Behind Tailscale serve, listen on loopback only:
 #Environment=HOST=127.0.0.1

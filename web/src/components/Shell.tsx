@@ -6,6 +6,7 @@ import { Apple, Bell, ChartLine, CircleUser, Clock, Ellipsis, FlaskConical, GitC
 import { useReminderNotifications } from "../lib/notify";
 import { useTheme, type ThemePref } from "../lib/theme";
 import { Toaster } from "./Toaster";
+import { ErrorBoundary } from "./ErrorBoundary";
 
 const NAV: { to: string; label: string; icon: LucideIcon }[] = [
   { to: "/", label: "Today", icon: Clock },
@@ -22,7 +23,11 @@ const NAV: { to: string; label: string; icon: LucideIcon }[] = [
 export function Shell({ onReplaySplash }: { onReplaySplash: () => void }) {
   const location = useLocation();
   const outlet = useOutlet();
-  useEffect(() => window.scrollTo({ top: 0 }), [location.pathname]);
+  // Block body on purpose: newer browsers return a Promise from scrollTo, and an
+  // effect that returns anything but a function crashes React on the next route.
+  useEffect(() => {
+    window.scrollTo({ top: 0 });
+  }, [location.pathname]);
   useReminderNotifications();
 
   return (
@@ -83,7 +88,7 @@ export function Shell({ onReplaySplash }: { onReplaySplash: () => void }) {
             finishing (throttled tab, dropped WAAPI animation) used to leave the
             page blank until a reload. A keyed enter animation can't block. */}
         <div key={location.pathname} className="page-enter">
-          {outlet}
+          <ErrorBoundary key={location.pathname}>{outlet}</ErrorBoundary>
         </div>
       </main>
 
@@ -110,7 +115,9 @@ function MoreMenu({ active }: { active: boolean }) {
   const [open, setOpen] = useState(false);
   const btn = useRef<HTMLButtonElement>(null);
   const location = useLocation();
-  useEffect(() => setOpen(false), [location.pathname]);
+  useEffect(() => {
+    setOpen(false);
+  }, [location.pathname]);
   return (
     <>
       <button ref={btn} onClick={() => setOpen((o) => !o)} aria-expanded={open} className={`flex flex-col items-center gap-1 rounded-xl px-2 py-1.5 text-[10px] font-medium ${active || open ? "text-ink" : "text-ink-3"}`}>
