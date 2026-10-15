@@ -1,10 +1,11 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FlaskConical, HeartPulse, Info, Layers, Pencil, Plus, Trash2, X } from "lucide-react";
-import { BODY_PANEL, LAB_TESTS, LAB_TEST_BY_KEY, labFlag, type Fact, type LabResult, type LabResultInput, type Profile } from "@sentience/shared";
+import { FileUp, FlaskConical, HeartPulse, Info, Layers, Pencil, Plus, Trash2, X } from "lucide-react";
+import { BODY_PANEL, LAB_INFO, LAB_TESTS, LAB_TEST_BY_KEY, labFlag, presetRange, type LabFlag, type Fact, type LabResult, type LabResultInput, type Profile } from "@sentience/shared";
 import { useSearchParams } from "react-router-dom";
 import { Body } from "../components/Body";
 import { Genetics } from "../components/Genetics";
+import { ImportRecord } from "../components/ImportRecord";
 import { api } from "../lib/api";
 import { fmtNum, toInputDateTime, fromInputDateTime } from "../lib/date";
 import { Card, Empty, Field, Modal, PageTitle, SectionTitle, Spinner, useToast } from "../components/ui";
@@ -63,6 +64,7 @@ export function Tests() {
   const tab: Tab = (TABS.find((t) => t.key === params.get("tab"))?.key ?? "bloods") as Tab;
   const [selected, setSelected] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [editing, setEditing] = useState<LabResult | null>(null);
   const toast = useToast();
 
@@ -95,9 +97,14 @@ export function Tests() {
         subtitle="Bloods, clinic visits, tape-measure results and genetics, tracked over time and included in every export."
         actions={
           tab === "bloods" ? (
-            <button className="btn-primary" onClick={() => setAdding(true)}>
-              <Plus className="h-4 w-4" /> Add results
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <button className="btn-ghost border border-line" onClick={() => setImporting(true)}>
+                <FileUp className="h-4 w-4" /> Import GP record
+              </button>
+              <button className="btn-primary" onClick={() => setAdding(true)}>
+                <Plus className="h-4 w-4" /> Add results
+              </button>
+            </div>
           ) : null
         }
       />
@@ -148,9 +155,14 @@ export function Tests() {
           title="No test results yet"
           body="Add a blood test or clinic visit. Enter a whole report at once: pick the date, then each result."
           action={
-            <button className="btn-primary" onClick={() => setAdding(true)}>
-              <Plus className="h-4 w-4" /> Add results
-            </button>
+            <div className="flex flex-wrap justify-center gap-2">
+              <button className="btn-ghost border border-line" onClick={() => setImporting(true)}>
+                <FileUp className="h-4 w-4" /> Import from Patient Access
+              </button>
+              <button className="btn-primary" onClick={() => setAdding(true)}>
+                <Plus className="h-4 w-4" /> Add results
+              </button>
+            </div>
           }
         />
       ) : (
@@ -202,9 +214,8 @@ export function Tests() {
             ))}
           </div>
 
-          <AnimatePresence mode="wait">
-            {current && (
-              <motion.div key={current.key} initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -8 }} transition={{ duration: 0.25 }}>
+          {current && (
+              <div key={current.key} className="fade-in-x">
                 <Card className="p-6 lg:sticky lg:top-6">
                   <div className="flex flex-wrap items-start justify-between gap-4">
                     <div>
@@ -225,6 +236,7 @@ export function Tests() {
                   <div className="mt-6">
                     <LabTrend results={current.results} />
                   </div>
+                  <LabAbout testKey={current.latest.testKey} flag={labFlag(current.latest)} />
                   <div className="-mx-6 mt-6 overflow-x-auto">
                     <table className="w-full min-w-[560px] text-sm">
                       <thead>
@@ -258,17 +270,25 @@ export function Tests() {
                   </div>
                   {current.latest.notes && <p className="mt-4 text-sm text-ink-2">{current.latest.notes}</p>}
                 </Card>
-              </motion.div>
+              </div>
             )}
-          </AnimatePresence>
         </div>
       )}
       </>)}
 
       <AddResults
+        sex={profile?.sex}
         open={adding}
         onClose={() => setAdding(false)}
         onSaved={async (msg) => {
+          await load();
+          toast(msg);
+        }}
+      />
+      <ImportRecord
+        open={importing}
+        onClose={() => setImporting(false)}
+        onImported={async (msg) => {
           await load();
           toast(msg);
         }}
@@ -301,12 +321,13 @@ interface Row {
 
 let rowSeq = 1;
 const blankRow = (): Row => ({ id: rowSeq++, testKey: "", name: "", value: "", unit: "", refLow: "", refHigh: "" });
-const fromPreset = (key: string): Row => {
+const fromPreset = (key: string, sex?: string): Row => {
   const t = LAB_TEST_BY_KEY[key];
-  return { id: rowSeq++, testKey: key, name: t?.name ?? "", value: "", unit: t?.unit ?? "", refLow: t?.refLow?.toString() ?? "", refHigh: t?.refHigh?.toString() ?? "" };
+  const r = t ? presetRange(t, sex) : {};
+  return { id: rowSeq++, testKey: key, name: t?.name ?? "", value: "", unit: t?.unit ?? "", refLow: r.refLow?.toString() ?? "", refHigh: r.refHigh?.toString() ?? "" };
 };
 
-function AddResults({ open, onClose, onSaved }: { open: boolean; onClose: () => void; onSaved: (msg: string) => Promise<void> }) {
+function AddResults({ open, onClose, onSaved, sex }: { open: boolean; onClose: () => void; onSaved: (msg: string) => Promise<void>; sex?: string }) {
   const [takenAt, setTakenAt] = useState("");
   const [lab, setLab] = useState("");
   const [notes, setNotes] = useState("");
@@ -330,7 +351,7 @@ function AddResults({ open, onClose, onSaved }: { open: boolean; onClose: () => 
   const update = (id: number, patch: Partial<Row>) => setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)));
   const addPanel = (p: string) => {
     const keys = LAB_TESTS.filter((t) => t.panel === p).map((t) => t.key);
-    setRows((rs) => [...rs.filter((r) => r.testKey || r.value), ...keys.filter((k) => !rs.some((r) => r.testKey === k)).map(fromPreset)]);
+    setRows((rs) => [...rs.filter((r) => r.testKey || r.value), ...keys.filter((k) => !rs.some((r) => r.testKey === k)).map((k) => fromPreset(k, sex))]);
     setPanel("");
   };
 
@@ -413,7 +434,7 @@ function AddResults({ open, onClose, onSaved }: { open: boolean; onClose: () => 
                     searchable
                     options={TEST_OPTIONS}
                     onChange={(k) => {
-                      const p = fromPreset(k);
+                      const p = fromPreset(k, sex);
                       update(r.id, { testKey: k, name: k === "custom" ? "" : p.name, unit: p.unit, refLow: p.refLow, refHigh: p.refHigh });
                     }}
                   />
@@ -542,5 +563,48 @@ function EditResult({ result, onClose, onSaved }: { result: LabResult | null; on
         </div>
       </form>
     </Modal>
+  );
+}
+
+/** What the test is, what this result direction usually means, and the UK range. */
+function LabAbout({ testKey, flag }: { testKey: string; flag: LabFlag }) {
+  const info = LAB_INFO[testKey];
+  if (!info) return null;
+  const direction = flag === "high" ? info.high : flag === "low" ? info.low : null;
+  return (
+    <div className="mt-6 space-y-3 rounded-2xl border border-line bg-paper-2 p-4 text-sm">
+      <p className="text-ink-2">{info.what}</p>
+      {direction && (
+        <div className={`rounded-xl border px-3 py-2 ${flag === "high" ? "border-bad/30" : "border-warn/30"}`}>
+          <div className={`text-[11px] font-semibold uppercase tracking-[0.12em] ${flag === "high" ? "text-bad" : "text-warn"}`}>Your latest is {flag}</div>
+          <p className="mt-1 text-ink">{direction}</p>
+        </div>
+      )}
+      {!direction && flag === "normal" && (info.high || info.low) && (
+        <details className="text-ink-2">
+          <summary className="cursor-pointer text-ink-3">What would high or low mean?</summary>
+          <div className="mt-2 space-y-1.5">
+            {info.high && (
+              <p>
+                <span className="font-medium text-ink">High: </span>
+                {info.high}
+              </p>
+            )}
+            {info.low && (
+              <p>
+                <span className="font-medium text-ink">Low: </span>
+                {info.low}
+              </p>
+            )}
+          </div>
+        </details>
+      )}
+      <div>
+        <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-3">UK range</div>
+        <p className="mt-1 text-ink-2">{info.uk}</p>
+      </div>
+      {info.tip && <p className="text-xs text-ink-3">{info.tip}</p>}
+      <p className="text-[11px] text-ink-3">General information, not a diagnosis. Your GP reads results alongside your history.</p>
+    </div>
   );
 }

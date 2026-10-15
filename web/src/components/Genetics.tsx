@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import { Dna, RefreshCw, Search, ShieldCheck, Sparkles } from "lucide-react";
+import { ChevronDown, Dna, Lightbulb, RefreshCw, Search, ShieldCheck, Sparkles } from "lucide-react";
 import type { Fact, FactInput } from "@sentience/shared";
 import { api } from "../lib/api";
 import { apoeType, describe, EVIDENCE_ORDER, genotypeFromValue, parse23andMe, snpParts, type Evidence, type ParsedSnp } from "../lib/snps";
@@ -20,6 +20,7 @@ export function Genetics({ facts, onChanged }: { facts: Fact[]; onChanged: () =>
   const file = useRef<HTMLInputElement>(null);
   const [q, setQ] = useState("");
   const [refreshing, setRefreshing] = useState(false);
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [dna, setDna] = useState<{ found: ParsedSnp[]; total: number; selected: Set<string> } | null>(null);
 
   const genetic = useMemo(() => facts.filter((f) => f.kind === "genetic"), [facts]);
@@ -33,8 +34,16 @@ export function Genetics({ facts, onChanged }: { facts: Fact[]; onChanged: () =>
         const g = genotypeFromValue(f.value) ?? "";
         return { f, g, ...snpParts(f.key, g) };
       })
-      .filter((r) => !needle || `${r.f.key} ${r.gene} ${r.about} ${r.call ?? ""}`.toLowerCase().includes(needle));
+      .filter((r) => !needle || `${r.f.key} ${r.gene} ${r.about} ${r.call ?? ""} ${r.plain} ${r.takeaway ?? ""}`.toLowerCase().includes(needle));
   }, [genetic, q]);
+
+  const toggle = (id: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   const byEvidence = EVIDENCE_ORDER.map((e) => ({ e, items: rows.filter((r) => r.evidence === e).sort((a, b) => a.gene.localeCompare(b.gene)) }));
 
@@ -137,20 +146,48 @@ export function Genetics({ facts, onChanged }: { facts: Fact[]; onChanged: () =>
                   {EVIDENCE_LABEL[e].title} · {items.length}
                 </SectionTitle>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">
-                  {items.map((r) => (
-                    <Card key={r.f.id} className={`p-4 ${e === "weak" ? "opacity-85" : ""}`}>
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="truncate font-semibold">{r.known ? r.gene : r.f.key}</div>
-                          <div className="truncate text-xs text-ink-3">
-                            {r.f.key} · {r.about}
+                  {items.map((r) => {
+                    const isOpen = expanded.has(r.f.id);
+                    return (
+                      <Card key={r.f.id} className={`p-4 ${e === "weak" ? "opacity-85" : ""}`}>
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="truncate font-semibold">{r.known ? r.gene : r.f.key}</div>
+                            <div className="truncate text-xs text-ink-3">
+                              {r.f.key} · {r.about}
+                            </div>
                           </div>
+                          <span className="shrink-0 rounded-lg bg-paper-3 px-2 py-1 font-mono text-sm font-semibold tracking-wider">{r.g || "?"}</span>
                         </div>
-                        <span className="shrink-0 rounded-lg bg-paper-3 px-2 py-1 font-mono text-sm font-semibold tracking-wider">{r.g || "?"}</span>
-                      </div>
-                      <p className="mt-2 text-sm text-ink-2">{r.call ?? (r.known ? "No specific reading for this genotype." : r.f.value)}</p>
-                    </Card>
-                  ))}
+                        <p className="mt-2 text-sm text-ink-2">{r.call ?? (r.known ? "No specific reading for this genotype." : r.f.value)}</p>
+                        {r.takeaway && (
+                          <div className="mt-3 flex items-start gap-2 rounded-lg border border-line bg-paper-2 px-3 py-2 text-xs text-ink-2">
+                            <Lightbulb className="mt-px h-3.5 w-3.5 shrink-0 text-ink-3" />
+                            <span>{r.takeaway}</span>
+                          </div>
+                        )}
+                        {r.plain && (
+                          <div className="mt-2">
+                            <button
+                              type="button"
+                              className="inline-flex items-center gap-1 text-xs font-medium text-ink-3 transition hover:text-ink"
+                              aria-expanded={isOpen}
+                              onClick={() => toggle(r.f.id)}
+                            >
+                              What does this mean?
+                              <ChevronDown className={`h-3.5 w-3.5 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+                            </button>
+                            {isOpen && (
+                              <div className="mt-2 border-t border-line pt-2">
+                                <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-3">What this gene does</div>
+                                <p className="mt-1 text-sm leading-relaxed text-ink-2">{r.plain}</p>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </Card>
+                    );
+                  })}
                 </div>
               </section>
             ),

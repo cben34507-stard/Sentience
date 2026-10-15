@@ -11,6 +11,7 @@ import { insertSamplesBulk, insertWorkoutsBulk, T, type SampleInsert } from "../
 import { createGoal } from "../src/services/goals.js";
 import { createFact, updateProfile } from "../src/services/profile.js";
 import { createLab } from "../src/services/labs.js";
+import { createReminder, markTaken } from "../src/services/reminders.js";
 import { addDays } from "@sentience/shared";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -130,6 +131,16 @@ for (const [offset, waist, hips, chest, bicep] of [[-28, 88.5, 101, 103, 34.5], 
 }
 for (const [testKey, name, panel, value, unit, refLow, refHigh, offset] of labs) {
   createLab(db, { testKey, name, panel, value, unit, refLow, refHigh, takenAt: iso(addDays(todayStr, Number(offset)), 9, 10), lab: "GP surgery" });
+}
+
+// Reminders, mostly kept up with.
+const vitD = createReminder(db, { title: "Vitamin D3", kind: "supplement", supplementKey: "vitamin_d3", dose: "1000 IU", times: ["08:00"], startedOn: addDays(todayStr, -20), notes: "With breakfast" });
+const creatine = createReminder(db, { title: "Creatine", kind: "supplement", dose: "5 g", times: ["08:00"], startedOn: addDays(todayStr, -9) });
+createReminder(db, { title: "Magnesium glycinate", kind: "supplement", dose: "200 mg", times: ["21:00"], days: [0, 1, 2, 3, 4, 5, 6], startedOn: todayStr });
+for (let i = 20; i >= 1; i--) {
+  const d = addDays(todayStr, -i);
+  if (i % 5 !== 3) markTaken(db, vitD.id, d, "08:00", tz, iso(d, 8, 25));
+  if (i <= 9 && i % 4 !== 1) markTaken(db, creatine.id, d, "08:00", tz, iso(d, 8, 26));
 }
 
 console.log(`seeded ${DB_FILE}: ${added} health samples, ${addedW} workouts, 14 days of events, 3 goals`);

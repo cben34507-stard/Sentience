@@ -1,14 +1,19 @@
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { NavLink, useLocation, useOutlet } from "react-router-dom";
-import { AnimatePresence, motion } from "framer-motion";
-import { Apple, ChartLine, CircleUser, Clock, FlaskConical, HeartPulse, Monitor, Moon, Settings as SettingsIcon, Sun, Target, type LucideIcon } from "lucide-react";
+import { motion } from "framer-motion";
+import { Apple, Bell, ChartLine, CircleUser, Clock, Ellipsis, FlaskConical, GitCompareArrows, HeartPulse, Monitor, Moon, Settings as SettingsIcon, Sun, Target, type LucideIcon } from "lucide-react";
+import { useReminderNotifications } from "../lib/notify";
 import { useTheme, type ThemePref } from "../lib/theme";
 import { Toaster } from "./Toaster";
 
 const NAV: { to: string; label: string; icon: LucideIcon }[] = [
   { to: "/", label: "Today", icon: Clock },
   { to: "/review", label: "Review", icon: ChartLine },
+  { to: "/explore", label: "Explore", icon: GitCompareArrows },
   { to: "/food", label: "Food", icon: Apple },
   { to: "/tests", label: "Tests", icon: FlaskConical },
+  { to: "/reminders", label: "Reminders", icon: Bell },
   { to: "/goals", label: "Goals", icon: Target },
   { to: "/health", label: "Health", icon: HeartPulse },
   { to: "/profile", label: "Profile", icon: CircleUser },
@@ -17,6 +22,8 @@ const NAV: { to: string; label: string; icon: LucideIcon }[] = [
 export function Shell({ onReplaySplash }: { onReplaySplash: () => void }) {
   const location = useLocation();
   const outlet = useOutlet();
+  useEffect(() => window.scrollTo({ top: 0 }), [location.pathname]);
+  useReminderNotifications();
 
   return (
     <div className="relative z-10 min-h-full">
@@ -72,29 +79,59 @@ export function Shell({ onReplaySplash }: { onReplaySplash: () => void }) {
       </header>
 
       <main className="w-full px-4 pb-28 pt-6 sm:px-6 md:pb-12 md:pl-[17rem] md:pr-8 md:pt-10 xl:pr-10 2xl:pl-[18rem] 2xl:pr-14">
-        <AnimatePresence mode="wait" initial={false} onExitComplete={() => window.scrollTo({ top: 0 })}>
-          <motion.div
-            key={location.pathname}
-            initial={{ opacity: 0, y: 14, filter: "blur(6px)" }}
-            animate={{ opacity: 1, y: 0, filter: "blur(0px)", transition: { duration: 0.42, ease: [0.22, 1, 0.36, 1] } }}
-            exit={{ opacity: 0, y: -10, filter: "blur(4px)", transition: { duration: 0.24, ease: [0.4, 0, 1, 1] } }}
-          >
-            {outlet}
-          </motion.div>
-        </AnimatePresence>
+        {/* CSS rather than AnimatePresence: an exit animation that never reports
+            finishing (throttled tab, dropped WAAPI animation) used to leave the
+            page blank until a reload. A keyed enter animation can't block. */}
+        <div key={location.pathname} className="page-enter">
+          {outlet}
+        </div>
       </main>
 
-      {/* Mobile tab bar */}
+      {/* Mobile tab bar: the most used five, the rest under More */}
       <nav className="fixed inset-x-0 bottom-0 z-30 flex justify-around border-t border-line bg-paper/85 px-1 pb-[max(env(safe-area-inset-bottom),8px)] pt-2 backdrop-blur-xl md:hidden">
-        {NAV.map((n) => (
+        {MOBILE_MAIN.map((n) => (
           <NavLink key={n.to} to={n.to} end={n.to === "/"} className={({ isActive }) => `flex flex-col items-center gap-1 rounded-xl px-2 py-1.5 text-[10px] font-medium transition-colors ${isActive ? "text-ink" : "text-ink-3"}`}>
             <n.icon className="h-5 w-5" strokeWidth={1.8} />
             {n.label}
           </NavLink>
         ))}
+        <MoreMenu active={MOBILE_MORE.some((n) => location.pathname.startsWith(n.to))} />
       </nav>
       <Toaster />
     </div>
+  );
+}
+
+const MOBILE_MAIN_PATHS = ["/", "/food", "/tests", "/reminders"];
+const MOBILE_MAIN = NAV.filter((n) => MOBILE_MAIN_PATHS.includes(n.to));
+const MOBILE_MORE = [...NAV.filter((n) => !MOBILE_MAIN_PATHS.includes(n.to)), { to: "/settings", label: "Settings", icon: SettingsIcon }];
+
+function MoreMenu({ active }: { active: boolean }) {
+  const [open, setOpen] = useState(false);
+  const btn = useRef<HTMLButtonElement>(null);
+  const location = useLocation();
+  useEffect(() => setOpen(false), [location.pathname]);
+  return (
+    <>
+      <button ref={btn} onClick={() => setOpen((o) => !o)} aria-expanded={open} className={`flex flex-col items-center gap-1 rounded-xl px-2 py-1.5 text-[10px] font-medium ${active || open ? "text-ink" : "text-ink-3"}`}>
+        <Ellipsis className="h-5 w-5" strokeWidth={1.8} />
+        More
+      </button>
+      {open &&
+        createPortal(
+          <div className="fixed inset-0 z-40 md:hidden" onClick={() => setOpen(false)}>
+            <div className="absolute bottom-[calc(max(env(safe-area-inset-bottom),8px)+64px)] right-3 w-56 rounded-2xl border border-line bg-paper p-1.5 shadow-pop" onClick={(e) => e.stopPropagation()}>
+              {MOBILE_MORE.map((n) => (
+                <NavLink key={n.to} to={n.to} className={({ isActive }) => `flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium ${isActive ? "bg-paper-3 text-ink" : "text-ink-2"}`}>
+                  <n.icon className="h-[18px] w-[18px]" strokeWidth={1.8} />
+                  {n.label}
+                </NavLink>
+              ))}
+            </div>
+          </div>,
+          document.body,
+        )}
+    </>
   );
 }
 

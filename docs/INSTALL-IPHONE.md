@@ -4,6 +4,20 @@ Apple only lets apps onto an iPhone through the App Store, TestFlight, or a buil
 
 **The catch is HealthKit.** Developers report that Xcode's free "Personal Team" signing refuses the HealthKit capability. Reading heart rate and writing test results both need it, so in practice you need the paid **Apple Developer Program** ($99 / £79 a year).
 
+## Free: no app, no developer account
+
+You can get almost everything without paying Apple:
+
+| You want | Free way |
+|---|---|
+| Sentience on the home screen | Open the server address in **Safari** → **Share → Add to Home Screen**. It opens full screen with its own icon, like an app. |
+| Apple Health data | Health app → your picture → **Export All Health Data**, save to Files, then upload it on the Health page in Safari. Re-uploading is safe: only new readings are added. Doing it weekly is plenty for trends and insights. |
+| Food from MyFitnessPal | Rides along in the same Health export (calories, protein, carbs, fat, water). |
+| Reminders that pop up | Reminders → **Add to calendar**, open the file on the iPhone and add the events. Calendar alerts you at each time, Sentience open or not. Download it again after changing reminders. |
+| Logging the day | Everything works in Safari: quick chips, food, water, reminders, tests. |
+
+What you give up without the paid app: live, automatic HealthKit sync in the background, and writing your test results into Apple Health. If you want automatic sync for free, the next step would be an Apple **Shortcuts** automation that reads the day's Health samples and posts them to your server each night; ask for it and it can be added.
+
 ## Option 1 — Mac + Xcode + Developer Program (recommended)
 
 You need a Mac (any Apple-silicon Mac, a borrowed one, or a cloud Mac) running a recent Xcode.

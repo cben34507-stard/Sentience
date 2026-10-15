@@ -429,9 +429,15 @@ export interface LabTestPreset {
   name: string;
   panel: string;
   unit: string;
-  /** Typical adult range. Labs differ, so the form asks you to use the range on your report. */
+  /**
+   * Typical UK adult range (Pathology Harmony where it exists, otherwise NICE/NHS
+   * thresholds or common NHS lab ranges). These are for adult men unless `female`
+   * overrides them. Labs differ, so an imported or entered report range wins.
+   */
   refLow?: number;
   refHigh?: number;
+  /** Range for women where it differs. */
+  female?: { refLow?: number; refHigh?: number };
   /**
    * HealthKit quantity type the iPhone app writes this result to.
    * Apple Health keeps lab panels as read-only clinical records, so only
@@ -443,29 +449,37 @@ export interface LabTestPreset {
 export const LAB_TESTS: LabTestPreset[] = [
   // Diabetes & glucose
   { key: "hba1c", name: "HbA1c", panel: "Diabetes", unit: "mmol/mol", refHigh: 41 },
-  { key: "glucose_fasting", name: "Glucose (fasting)", panel: "Diabetes", unit: "mmol/L", refLow: 3.9, refHigh: 5.5, healthKit: { type: "HKQuantityTypeIdentifierBloodGlucose", unit: "mmol<180.15588000005408>/L" } },
-  { key: "glucose_random", name: "Glucose (random)", panel: "Diabetes", unit: "mmol/L", refLow: 4.0, refHigh: 7.8, healthKit: { type: "HKQuantityTypeIdentifierBloodGlucose", unit: "mmol<180.15588000005408>/L" } },
+  { key: "glucose_fasting", name: "Glucose (fasting)", panel: "Diabetes", unit: "mmol/L", refLow: 3.5, refHigh: 6.0, healthKit: { type: "HKQuantityTypeIdentifierBloodGlucose", unit: "mmol<180.15588000005408>/L" } },
+  { key: "glucose_random", name: "Glucose (random)", panel: "Diabetes", unit: "mmol/L", refLow: 3.5, refHigh: 7.8, healthKit: { type: "HKQuantityTypeIdentifierBloodGlucose", unit: "mmol<180.15588000005408>/L" } },
   // Lipids
   { key: "chol_total", name: "Total cholesterol", panel: "Lipids", unit: "mmol/L", refHigh: 5.0 },
   { key: "ldl", name: "LDL cholesterol", panel: "Lipids", unit: "mmol/L", refHigh: 3.0 },
-  { key: "hdl", name: "HDL cholesterol", panel: "Lipids", unit: "mmol/L", refLow: 1.0 },
+  { key: "hdl", name: "HDL cholesterol", panel: "Lipids", unit: "mmol/L", refLow: 1.0, female: { refLow: 1.2 } },
   { key: "non_hdl", name: "Non-HDL cholesterol", panel: "Lipids", unit: "mmol/L", refHigh: 4.0 },
   { key: "triglycerides", name: "Triglycerides", panel: "Lipids", unit: "mmol/L", refHigh: 1.7 },
   { key: "chol_hdl_ratio", name: "Cholesterol : HDL ratio", panel: "Lipids", unit: "ratio", refHigh: 4.0 },
   // Vitamins & iron
-  { key: "vitd", name: "Vitamin D (25-OH)", panel: "Vitamins & iron", unit: "nmol/L", refLow: 50, refHigh: 125 },
+  { key: "vitd", name: "Vitamin D (25-OH)", panel: "Vitamins & iron", unit: "nmol/L", refLow: 50, refHigh: 150 },
   { key: "b12", name: "Vitamin B12", panel: "Vitamins & iron", unit: "ng/L", refLow: 200, refHigh: 900 },
   { key: "folate", name: "Folate (serum)", panel: "Vitamins & iron", unit: "µg/L", refLow: 3, refHigh: 20 },
-  { key: "ferritin", name: "Ferritin", panel: "Vitamins & iron", unit: "µg/L", refLow: 30, refHigh: 400 },
+  { key: "ferritin", name: "Ferritin", panel: "Vitamins & iron", unit: "µg/L", refLow: 30, refHigh: 400, female: { refLow: 30, refHigh: 200 } },
   { key: "iron", name: "Iron (serum)", panel: "Vitamins & iron", unit: "µmol/L", refLow: 10, refHigh: 30 },
   { key: "tsat", name: "Transferrin saturation", panel: "Vitamins & iron", unit: "%", refLow: 20, refHigh: 50 },
   // Full blood count
-  { key: "hb", name: "Haemoglobin", panel: "Full blood count", unit: "g/L", refLow: 130, refHigh: 180 },
+  { key: "hb", name: "Haemoglobin", panel: "Full blood count", unit: "g/L", refLow: 130, refHigh: 180, female: { refLow: 115, refHigh: 165 } },
+  { key: "rbc", name: "Red cell count", panel: "Full blood count", unit: "×10¹²/L", refLow: 4.5, refHigh: 6.5, female: { refLow: 3.8, refHigh: 5.8 } },
+  { key: "hct", name: "Haematocrit", panel: "Full blood count", unit: "L/L", refLow: 0.4, refHigh: 0.52, female: { refLow: 0.37, refHigh: 0.47 } },
   { key: "wbc", name: "White cell count", panel: "Full blood count", unit: "×10⁹/L", refLow: 4.0, refHigh: 11.0 },
   { key: "platelets", name: "Platelets", panel: "Full blood count", unit: "×10⁹/L", refLow: 150, refHigh: 400 },
   { key: "mcv", name: "MCV", panel: "Full blood count", unit: "fL", refLow: 80, refHigh: 100 },
+  { key: "mch", name: "MCH", panel: "Full blood count", unit: "pg", refLow: 27, refHigh: 32 },
+  { key: "mchc", name: "MCHC", panel: "Full blood count", unit: "g/L", refLow: 320, refHigh: 360 },
+  { key: "rdw", name: "RDW", panel: "Full blood count", unit: "%", refLow: 11.5, refHigh: 15 },
   { key: "neutrophils", name: "Neutrophils", panel: "Full blood count", unit: "×10⁹/L", refLow: 2.0, refHigh: 7.5 },
   { key: "lymphocytes", name: "Lymphocytes", panel: "Full blood count", unit: "×10⁹/L", refLow: 1.0, refHigh: 4.0 },
+  { key: "monocytes", name: "Monocytes", panel: "Full blood count", unit: "×10⁹/L", refLow: 0.2, refHigh: 0.8 },
+  { key: "eosinophils", name: "Eosinophils", panel: "Full blood count", unit: "×10⁹/L", refLow: 0, refHigh: 0.4 },
+  { key: "basophils", name: "Basophils", panel: "Full blood count", unit: "×10⁹/L", refLow: 0, refHigh: 0.1 },
   // Thyroid
   { key: "tsh", name: "TSH", panel: "Thyroid", unit: "mU/L", refLow: 0.27, refHigh: 4.2 },
   { key: "ft4", name: "Free T4", panel: "Thyroid", unit: "pmol/L", refLow: 12, refHigh: 22 },
@@ -477,27 +491,40 @@ export const LAB_TESTS: LabTestPreset[] = [
   { key: "ggt", name: "GGT", panel: "Liver", unit: "U/L", refHigh: 55 },
   { key: "bilirubin", name: "Bilirubin", panel: "Liver", unit: "µmol/L", refHigh: 21 },
   { key: "albumin", name: "Albumin", panel: "Liver", unit: "g/L", refLow: 35, refHigh: 50 },
+  { key: "total_protein", name: "Total protein", panel: "Liver", unit: "g/L", refLow: 60, refHigh: 80 },
+  { key: "globulin", name: "Globulin", panel: "Liver", unit: "g/L", refLow: 20, refHigh: 35 },
+  { key: "fib4", name: "FIB-4 score", panel: "Liver", unit: "score", refHigh: 1.3 },
   // Kidney & electrolytes
-  { key: "creatinine", name: "Creatinine", panel: "Kidney", unit: "µmol/L", refLow: 59, refHigh: 104 },
+  { key: "creatinine", name: "Creatinine", panel: "Kidney", unit: "µmol/L", refLow: 59, refHigh: 104, female: { refLow: 45, refHigh: 84 } },
   { key: "egfr", name: "eGFR", panel: "Kidney", unit: "mL/min/1.73m²", refLow: 60 },
   { key: "urea", name: "Urea", panel: "Kidney", unit: "mmol/L", refLow: 2.5, refHigh: 7.8 },
   { key: "sodium", name: "Sodium", panel: "Kidney", unit: "mmol/L", refLow: 133, refHigh: 146 },
   { key: "potassium", name: "Potassium", panel: "Kidney", unit: "mmol/L", refLow: 3.5, refHigh: 5.3 },
   { key: "calcium_adj", name: "Calcium (adjusted)", panel: "Bone", unit: "mmol/L", refLow: 2.2, refHigh: 2.6 },
   { key: "magnesium", name: "Magnesium", panel: "Bone", unit: "mmol/L", refLow: 0.7, refHigh: 1.0 },
-  { key: "urate", name: "Uric acid", panel: "Kidney", unit: "µmol/L", refLow: 200, refHigh: 430 },
+  { key: "calcium", name: "Calcium (total)", panel: "Bone", unit: "mmol/L", refLow: 2.2, refHigh: 2.6 },
+  { key: "phosphate", name: "Phosphate", panel: "Bone", unit: "mmol/L", refLow: 0.8, refHigh: 1.5 },
+  { key: "urate", name: "Uric acid", panel: "Kidney", unit: "µmol/L", refLow: 200, refHigh: 430, female: { refLow: 140, refHigh: 360 } },
   // Inflammation & hormones
   { key: "crp", name: "CRP", panel: "Inflammation", unit: "mg/L", refHigh: 5 },
   { key: "esr", name: "ESR", panel: "Inflammation", unit: "mm/hr", refHigh: 20 },
-  { key: "testosterone", name: "Testosterone (total)", panel: "Hormones", unit: "nmol/L", refLow: 8.6, refHigh: 29 },
+  { key: "testosterone", name: "Testosterone (total)", panel: "Hormones", unit: "nmol/L", refLow: 8.6, refHigh: 29, female: { refLow: 0.29, refHigh: 1.67 } },
+  { key: "free_testosterone", name: "Free testosterone (calculated)", panel: "Hormones", unit: "nmol/L", refLow: 0.225, refHigh: 0.62 },
+  { key: "shbg", name: "SHBG", panel: "Hormones", unit: "nmol/L", refLow: 18, refHigh: 54, female: { refLow: 26, refHigh: 110 } },
+  { key: "lh", name: "LH", panel: "Hormones", unit: "IU/L", refLow: 1.7, refHigh: 8.6 },
+  { key: "fsh", name: "FSH", panel: "Hormones", unit: "IU/L", refLow: 1.5, refHigh: 12.4 },
+  { key: "prolactin", name: "Prolactin", panel: "Hormones", unit: "mU/L", refLow: 86, refHigh: 324, female: { refLow: 102, refHigh: 496 } },
   { key: "cortisol_am", name: "Cortisol (morning)", panel: "Hormones", unit: "nmol/L" },
-  { key: "psa", name: "PSA", panel: "Hormones", unit: "µg/L", refHigh: 4 },
+  { key: "psa", name: "PSA", panel: "Hormones", unit: "µg/L", refHigh: 3 },
   // Measurements that Apple Health has a home for
-  { key: "bp_sys", name: "Blood pressure (systolic)", panel: "Clinic measurements", unit: "mmHg", refHigh: 140, healthKit: { type: "HKQuantityTypeIdentifierBloodPressureSystolic", unit: "mmHg" } },
-  { key: "bp_dia", name: "Blood pressure (diastolic)", panel: "Clinic measurements", unit: "mmHg", refHigh: 90, healthKit: { type: "HKQuantityTypeIdentifierBloodPressureDiastolic", unit: "mmHg" } },
+  { key: "bp_sys", name: "Blood pressure (systolic)", panel: "Clinic measurements", unit: "mmHg", refLow: 90, refHigh: 139, healthKit: { type: "HKQuantityTypeIdentifierBloodPressureSystolic", unit: "mmHg" } },
+  { key: "bp_dia", name: "Blood pressure (diastolic)", panel: "Clinic measurements", unit: "mmHg", refLow: 60, refHigh: 89, healthKit: { type: "HKQuantityTypeIdentifierBloodPressureDiastolic", unit: "mmHg" } },
+  { key: "bp_sys_home", name: "Home BP average (systolic)", panel: "Clinic measurements", unit: "mmHg", refHigh: 134 },
+  { key: "bp_dia_home", name: "Home BP average (diastolic)", panel: "Clinic measurements", unit: "mmHg", refHigh: 84 },
   { key: "spo2", name: "Oxygen saturation", panel: "Clinic measurements", unit: "%", refLow: 95, healthKit: { type: "HKQuantityTypeIdentifierOxygenSaturation", unit: "%" } },
-  { key: "temp", name: "Body temperature", panel: "Clinic measurements", unit: "°C", refLow: 36.1, refHigh: 37.5, healthKit: { type: "HKQuantityTypeIdentifierBodyTemperature", unit: "degC" } },
-  { key: "pulse", name: "Pulse (resting)", panel: "Clinic measurements", unit: "bpm", refLow: 50, refHigh: 100, healthKit: { type: "HKQuantityTypeIdentifierRestingHeartRate", unit: "count/min" } },
+  { key: "temp", name: "Body temperature", panel: "Clinic measurements", unit: "°C", refLow: 36.0, refHigh: 37.9, healthKit: { type: "HKQuantityTypeIdentifierBodyTemperature", unit: "degC" } },
+  { key: "pulse", name: "Pulse (resting)", panel: "Clinic measurements", unit: "bpm", refLow: 60, refHigh: 100, healthKit: { type: "HKQuantityTypeIdentifierRestingHeartRate", unit: "count/min" } },
+  { key: "height", name: "Height", panel: "Body measurements", unit: "cm" },
   { key: "weight", name: "Weight", panel: "Body measurements", unit: "kg", healthKit: { type: "HKQuantityTypeIdentifierBodyMass", unit: "kg" } },
   { key: "bmi", name: "BMI", panel: "Body measurements", unit: "kg/m²", refLow: 18.5, refHigh: 24.9, healthKit: { type: "HKQuantityTypeIdentifierBodyMassIndex", unit: "count" } },
   { key: "body_fat", name: "Body fat", panel: "Body measurements", unit: "%", healthKit: { type: "HKQuantityTypeIdentifierBodyFatPercentage", unit: "%" } },
@@ -517,6 +544,11 @@ export const LAB_TESTS: LabTestPreset[] = [
   { key: "fev1", name: "FEV1", panel: "Lung function", unit: "L", healthKit: { type: "HKQuantityTypeIdentifierForcedExpiratoryVolume1", unit: "L" } },
   { key: "fvc", name: "FVC", panel: "Lung function", unit: "L", healthKit: { type: "HKQuantityTypeIdentifierForcedVitalCapacity", unit: "L" } },
   { key: "peak_flow", name: "Peak flow", panel: "Lung function", unit: "L/min", healthKit: { type: "HKQuantityTypeIdentifierPeakExpiratoryFlowRate", unit: "L/min" } },
+  { key: "fev1_fvc", name: "FEV1/FVC ratio", panel: "Lung function", unit: "ratio", refLow: 0.7 },
+  { key: "fev1_pct", name: "FEV1 (% predicted)", panel: "Lung function", unit: "%", refLow: 80 },
+  { key: "fvc_pct", name: "FVC (% predicted)", panel: "Lung function", unit: "%", refLow: 80 },
+  { key: "lung_age", name: "Spirometric lung age", panel: "Lung function", unit: "years" },
+  { key: "act_score", name: "Asthma Control Test", panel: "Lung function", unit: "/25", refLow: 20 },
 ];
 
 /** Tape-measure sites in the order you'd measure them, top to bottom. */
@@ -524,6 +556,63 @@ export const TAPE_SITES = ["neck", "shoulders", "chest", "bicep_l", "bicep_r", "
 export const BODY_PANEL = "Body measurements";
 
 export const LAB_TEST_BY_KEY: Record<string, LabTestPreset> = Object.fromEntries(LAB_TESTS.map((t) => [t.key, t]));
+
+/** The preset range for this person's sex (male ranges when unknown). */
+export function presetRange(p: LabTestPreset, sex?: string | null): { refLow?: number; refHigh?: number } {
+  if (sex === "female" && p.female) return { refLow: p.female.refLow ?? p.refLow, refHigh: p.female.refHigh ?? p.refHigh };
+  return { refLow: p.refLow, refHigh: p.refHigh };
+}
+
+/* ------------------------------------------------------------------ */
+/* Reminders — supplements, medication, habits                          */
+/* ------------------------------------------------------------------ */
+
+export const REMINDER_KINDS = ["supplement", "medication", "habit", "other"] as const;
+export const ReminderSchema = z.object({
+  id,
+  title: z.string().trim().min(1).max(120),
+  kind: z.enum(REMINDER_KINDS),
+  /** SUPPLEMENTS key when the title is a known supplement. */
+  supplementKey: z.string().max(60).nullable().default(null),
+  dose: z.string().max(80).default(""),
+  /** Local times, "HH:MM". */
+  times: z.array(z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)).min(1).max(8),
+  /** Days of the week it applies, 0 = Sunday. */
+  days: z.array(z.number().int().min(0).max(6)).min(1).max(7).default([0, 1, 2, 3, 4, 5, 6]),
+  notes: z.string().max(1000).default(""),
+  active: z.boolean().default(true),
+  /** First day taken; the supplement timeline counts from here. */
+  startedOn: isoDate,
+  createdAt: isoDateTime,
+  updatedAt: isoDateTime,
+  deletedAt: isoDateTime.nullable().optional(),
+});
+export type Reminder = z.infer<typeof ReminderSchema>;
+export const ReminderInputSchema = ReminderSchema.omit({ id: true, createdAt: true, updatedAt: true, deletedAt: true });
+export type ReminderInput = z.input<typeof ReminderInputSchema>;
+
+export interface ReminderDose {
+  reminderId: string;
+  title: string;
+  dose: string;
+  kind: Reminder["kind"];
+  time: string;
+  /** ISO instant the dose is due. */
+  dueAt: string;
+  status: "taken" | "due" | "upcoming" | "missed";
+  /** Timeline event that recorded it, when taken. */
+  eventId: string | null;
+  takenAt: string | null;
+}
+export interface ReminderStatus extends Reminder {
+  /** Share of scheduled doses taken over the last 30 days (or since starting). */
+  adherence: number | null;
+  scheduled30: number;
+  taken30: number;
+  /** Days in a row with every dose taken, up to today. */
+  streak: number;
+  daysSinceStart: number;
+}
 
 /* ------------------------------------------------------------------ */
 /* Export bundle — the thing you hand to an analyst (human or AI)      */
@@ -620,3 +709,6 @@ export function daysBetween(from: string, to: string): number {
   const b = Date.parse(`${to}T00:00:00Z`);
   return Math.round((b - a) / 86_400_000);
 }
+
+export * from "./labInfo.js";
+export * from "./supplements.js";

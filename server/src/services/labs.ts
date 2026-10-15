@@ -57,7 +57,7 @@ export function getLab(db: DB, id: string): LabResult | null {
  * Same test, same moment, same value → it's the same result entered twice
  * (or re-entered from another device). Returns the existing row instead.
  */
-function findDuplicate(db: DB, input: LabResultInput): LabResult | null {
+export function findDuplicate(db: DB, input: LabResultInput): LabResult | null {
   const r = db
     .prepare(
       `SELECT * FROM lab_results WHERE deleted_at IS NULL AND test_key = ? AND name = ? AND taken_s = ?

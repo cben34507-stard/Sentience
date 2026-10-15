@@ -6,6 +6,7 @@ import {
   FactInputSchema,
   GoalInputSchema,
   LabResultInputSchema,
+  ReminderInputSchema,
   ProfileInputSchema,
   SyncPushSchema,
   isoDate,
@@ -24,6 +25,9 @@ import { computeAchievements, loggingStreak } from "../services/achievements.js"
 import { buildBundle, bundleToMarkdown } from "../services/exportBundle.js";
 import { sync } from "../services/sync.js";
 import * as labs from "../services/labs.js";
+import * as patientAccess from "../services/patientAccess.js";
+import * as explore from "../services/explore.js";
+import * as reminders from "../services/reminders.js";
 import { frequentMeals, nutritionForDay } from "../services/nutrition.js";
 import { computeInsights } from "../services/insights.js";
 import { aiStatus, assessRange, estimateMeal } from "../services/ai.js";
@@ -254,6 +258,24 @@ export function buildRouter(db: DB, uploadDir: string): Router {
     res.status(201);
     return { created: results.filter((r) => !r.duplicate).length, duplicates: results.filter((r) => r.duplicate).length };
   }));
+  /** Patient Access (EMIS) medical record XML. `commit: false` previews without saving. */
+  r.post("/labs/import/patient-access", wrap((req, res) => {
+    const body = parse(z.object({ fileBase64: z.string().min(1).max(14_000_000), commit: z.boolean().default(false) }), req.body);
+    let parsed;
+    try {
+      parsed = patientAccess.parsePatientAccess(Buffer.from(body.fileBase64, "base64"), tz(), profile.getProfile(db).sex);
+    } catch (e) {
+      throw new HttpError(400, e instanceof Error ? e.message : "Couldn't read that file");
+    }
+    const inputs = patientAccess.toInputs(parsed.rows);
+    if (!body.commit) {
+      const existing = inputs.map((i) => !!labs.findDuplicate(db, i));
+      return { ...parsed, rows: parsed.rows.map((r, i) => ({ ...r, exists: existing[i] })), newCount: existing.filter((e) => !e).length };
+    }
+    const results = db.transaction(() => inputs.map((i) => labs.createLab(db, i)))();
+    res.status(201);
+    return { created: results.filter((r) => !r.duplicate).length, duplicates: results.filter((r) => r.duplicate).length, skipped: parsed.skipped.length };
+  }));
   r.put("/labs/:id", wrap((req) => {
     const l = labs.updateLab(db, req.params.id, parse(LabResultInputSchema.partial(), req.body));
     if (!l) throw new HttpError(404, "result not found");
@@ -273,6 +295,71 @@ export function buildRouter(db: DB, uploadDir: string): Router {
 
   /* ---------- insights (local, no AI) ---------- */
   r.get("/insights", wrap(() => computeInsights(db, tz(), todayIn(tz()))));
+
+  /* ---------- reminders ---------- */
+  r.get("/reminders", wrap(() => reminders.reminderStatuses(db, tz(), todayIn(tz()))));
+  r.get("/reminders/doses", wrap((req) => {
+    const { date } = parse(z.object({ date: isoDate.optional() }), req.query);
+    return reminders.dosesForDay(db, date ?? todayIn(tz()), tz());
+  }));
+  r.get("/reminders/calendar.ics", (_req, res) => {
+    res.setHeader("Content-Type", "text/calendar; charset=utf-8");
+    res.setHeader("Content-Disposition", 'attachment; filename="sentience-reminders.ics"');
+    res.send(reminders.remindersIcs(db, tz()));
+  });
+  r.post("/reminders", wrap((req, res) => {
+    res.status(201);
+    return reminders.createReminder(db, parse(ReminderInputSchema, req.body));
+  }));
+  r.put("/reminders/:id", wrap((req) => {
+    const out = reminders.updateReminder(db, req.params.id, parse(ReminderInputSchema.partial(), req.body));
+    if (!out) throw new HttpError(404, "reminder not found");
+    return out;
+  }));
+  r.delete("/reminders/:id", wrap((req, res) => {
+    if (!reminders.deleteReminder(db, req.params.id)) throw new HttpError(404, "reminder not found");
+    res.status(204).end();
+  }));
+  const DoseBody = z.object({ date: isoDate, time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/) });
+  r.post("/reminders/:id/taken", wrap((req, res) => {
+    const { date, time } = parse(DoseBody, req.body);
+    if (!reminders.getReminder(db, req.params.id)) throw new HttpError(404, "reminder not found");
+    res.status(201);
+    return reminders.markTaken(db, req.params.id, date, time, tz());
+  }));
+  r.delete("/reminders/:id/taken", wrap((req) => {
+    const { date, time } = parse(DoseBody, req.query);
+    return { removed: reminders.undoTaken(db, req.params.id, date, time, tz()) };
+  }));
+
+  /* ---------- does X affect Y? ---------- */
+  const exploreRange = (q: unknown) => {
+    const { from, to } = parse(RangeQuery, q);
+    if (from > to) throw new HttpError(400, "from must be before to");
+    if (Date.parse(to) - Date.parse(from) > 366 * 86400_000) throw new HttpError(400, "Pick a year or less");
+    return { from, to };
+  };
+  r.get("/explore/options", wrap((req) => {
+    const { from, to } = exploreRange(req.query);
+    return explore.options(explore.loadDays(db, tz(), from, to));
+  }));
+  r.get("/explore/discover", wrap((req) => {
+    const { from, to } = exploreRange(req.query);
+    return explore.discover(explore.loadDays(db, tz(), from, to), tz());
+  }));
+  r.get("/explore", wrap((req) => {
+    const { from, to } = exploreRange(req.query);
+    const q = parse(
+      z.object({
+        x: z.string().regex(/^(cat|text|title|tag|data|health|rating):.{1,120}$/),
+        y: z.string().regex(/^([a-zA-Z]+|rating:[a-z_]+)$/),
+        lag: z.coerce.number().int().min(0).max(3).default(1),
+        after: z.coerce.number().int().min(0).max(23).optional(),
+      }),
+      req.query,
+    );
+    return explore.analyse(explore.loadDays(db, tz(), from, to), { x: q.x, y: q.y, lag: q.lag, afterHour: q.after ?? null }, tz());
+  }));
 
   /* ---------- AI (optional; needs an Anthropic API key) ---------- */
   r.get("/ai/status", wrap(() => aiStatus(db)));

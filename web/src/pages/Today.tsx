@@ -10,6 +10,7 @@ import { addDays, durationMin, fmtDateLong, fmtNum, fmtTime, minutesToHm, todayL
 import { Card, Empty, Ring, SectionTitle, Spinner, Stat, useToast } from "../components/ui";
 import { HeartRateChart, StepsChart } from "../components/Charts";
 import { DayStrand } from "../components/DayStrand";
+import { DoseList } from "../components/Doses";
 import { useTheme } from "../lib/theme";
 import { EventForm } from "../components/EventForm";
 
@@ -174,6 +175,7 @@ export function Today() {
         </div>
 
         <div className="order-3 min-w-0 space-y-6">
+          <DoseList date={date} card compact onChange={load} />
 
           {day && day.goals.length > 0 && (
             <Card className="p-5">

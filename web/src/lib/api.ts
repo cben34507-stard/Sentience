@@ -14,6 +14,10 @@ import type {
   Insight,
   Profile,
   ProfileInput,
+  Reminder,
+  ReminderDose,
+  ReminderInput,
+  ReminderStatus,
 } from "@sentience/shared";
 
 export class ApiError extends Error {
@@ -168,12 +172,32 @@ export const api = {
     assess: (from: string, to: string) => post<{ markdown: string; model: string }>("/ai/assess", { from, to }),
   },
 
+  reminders: {
+    list: () => get<ReminderStatus[]>("/reminders"),
+    doses: (date?: string) => get<ReminderDose[]>(`/reminders/doses${date ? `?date=${date}` : ""}`),
+    create: (input: ReminderInput) => post<Reminder>("/reminders", input),
+    update: (id: string, input: Partial<ReminderInput>) => put<Reminder>(`/reminders/${id}`, input),
+    remove: (id: string) => del(`/reminders/${id}`),
+    taken: (id: string, date: string, time: string) => post<Event>(`/reminders/${id}/taken`, { date, time }),
+    undo: (id: string, date: string, time: string) => del(`/reminders/${id}/taken?date=${date}&time=${encodeURIComponent(time)}`),
+    calendarUrl: "/api/reminders/calendar.ics",
+  },
+
+  explore: {
+    options: (from: string, to: string) => get<ExploreOptions>(`/explore/options?from=${from}&to=${to}`),
+    discover: (from: string, to: string) => get<ExploreResult[]>(`/explore/discover?from=${from}&to=${to}`),
+    run: (q: { from: string; to: string; x: string; y: string; lag: number; after?: number | null }) =>
+      get<ExploreResult>(`/explore?from=${q.from}&to=${q.to}&x=${encodeURIComponent(q.x)}&y=${encodeURIComponent(q.y)}&lag=${q.lag}${q.after != null ? `&after=${q.after}` : ""}`),
+  },
+
   labs: {
     list: () => get<LabResult[]>("/labs"),
     create: (input: LabResultInput) => post<LabResult & { duplicate: boolean }>("/labs", input),
     bulk: (items: LabResultInput[]) => post<{ created: number; duplicates: number }>("/labs/bulk", items),
     update: (id: string, input: Partial<LabResultInput>) => put<LabResult>(`/labs/${id}`, input),
     remove: (id: string) => del(`/labs/${id}`),
+    previewPatientAccess: (fileBase64: string) => post<PatientAccessPreview>("/labs/import/patient-access", { fileBase64, commit: false }),
+    importPatientAccess: (fileBase64: string) => post<{ created: number; duplicates: number; skipped: number }>("/labs/import/patient-access", { fileBase64, commit: true }),
   },
 
   events: {
@@ -219,3 +243,49 @@ export const api = {
     `/api/export?from=${from}&to=${to}&format=${format}${download ? "&download=1" : ""}`,
   exportMarkdown: (from: string, to: string) => fetch(`/api/export?from=${from}&to=${to}&format=md`).then((r) => r.text()),
 };
+
+export interface PatientAccessRow extends LabResultInput {
+  source: string;
+  flag: "low" | "normal" | "high" | "unknown";
+  rangeFrom: "report" | "preset" | "none";
+  exists: boolean;
+}
+export interface PatientAccessPreview {
+  rows: PatientAccessRow[];
+  skipped: { date: string; description: string; reason: string }[];
+  reports: number;
+  from: string | null;
+  to: string | null;
+  newCount: number;
+}
+
+/** Raw bytes as base64, so the server can sort out the file's real encoding. */
+export async function fileToBase64(file: File): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+
+export interface ExploreOptions {
+  x: { value: string; label: string; group: string; count: number }[];
+  y: { value: string; label: string; count: number; defaultLag: number }[];
+}
+export interface ExploreResult {
+  x: string;
+  y: string;
+  xLabel: string;
+  yLabel: string;
+  yUnit: string;
+  lag: number;
+  kind: "binary" | "numeric";
+  points: { date: string; x: number; y: number }[];
+  n: number;
+  groups: { label: string; n: number; mean: number | null }[];
+  diff: number | null;
+  diffPct: number | null;
+  r: number | null;
+  p: number | null;
+  verdict: "likely" | "possible" | "none" | "not-enough";
+  summary: string;
+}

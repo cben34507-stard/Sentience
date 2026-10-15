@@ -19,3 +19,6 @@
 - Meals and water are events: `meal` with `data.kcal/protein_g/carbs_g/fat_g/fibre_g/slot`, `drink` with `data.water_ml`. Apple Health dietary totals are shown beside them, never summed in.
 - AI (`server/src/services/ai.ts`) is opt-in, uses `claude-opus-5-5` with server-side fallbacks and `output_config`; it must stay optional, and nothing else may call out to the network.
 - Security notes for users live in `docs/SECURITY.md`; keep the checkup in `server/src/routes/auth.ts` in step with it.
+- Page transitions are a keyed CSS animation (`.page-enter` in `index.css`), not `AnimatePresence mode="wait"`: an exit that never finishes left pages blank. Don't reintroduce wait-mode presence around routed content.
+- Reminder doses are events (`data.reminder_id/reminder_date/reminder_time`), not a separate table; supplement facts live in `SUPPLEMENTS` (shared), lab explanations in `LAB_INFO` (shared, one entry per `LAB_TESTS` key).
+- The Patient Access importer (`server/src/services/patientAccess.ts`) must never read `<Source>/<User>`; tests use a synthetic record. Real GP exports are gitignored.

@@ -11,6 +11,8 @@ import { Profile } from "./pages/Profile";
 import { Tests } from "./pages/Tests";
 import { Food } from "./pages/Food";
 import { Settings } from "./pages/Settings";
+import { Explore } from "./pages/Explore";
+import { Reminders } from "./pages/Reminders";
 import { useTheme } from "./lib/theme";
 import { AuthGate } from "./components/AuthGate";
 
@@ -61,6 +63,8 @@ export default function App() {
           <Route path="/review" element={<Review />} />
           <Route path="/tests" element={<Tests />} />
           <Route path="/food" element={<Food />} />
+          <Route path="/explore" element={<Explore />} />
+          <Route path="/reminders" element={<Reminders />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/goals" element={<Goals />} />
           <Route path="/health" element={<Health />} />

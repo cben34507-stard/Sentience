@@ -181,6 +181,22 @@ CREATE TABLE IF NOT EXISTS sessions (
   user_agent   TEXT
 );
 
+CREATE TABLE IF NOT EXISTS reminders (
+  id             TEXT PRIMARY KEY,
+  title          TEXT NOT NULL,
+  kind           TEXT NOT NULL,
+  supplement_key TEXT,
+  dose           TEXT NOT NULL DEFAULT '',
+  times          TEXT NOT NULL,
+  days           TEXT NOT NULL,
+  notes          TEXT NOT NULL DEFAULT '',
+  active         INTEGER NOT NULL DEFAULT 1,
+  started_on     TEXT NOT NULL,
+  created_at     TEXT NOT NULL,
+  updated_at     TEXT NOT NULL,
+  deleted_at     TEXT
+);
+
 CREATE TABLE IF NOT EXISTS settings (
   key        TEXT PRIMARY KEY,
   value      TEXT NOT NULL,

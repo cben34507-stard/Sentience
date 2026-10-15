@@ -55,6 +55,7 @@ Base URL: `http://<server>:4477/api`. JSON in, JSON out. Everything except `/hea
 | `GET /labs` or `?from=&to=` | all results, oldest first |
 | `POST /labs` | `{ testKey, name, value, unit, takenAt, panel?, valueText?, refLow?, refHigh?, lab?, notes? }`; returns `duplicate: true` if the same result exists |
 | `POST /labs/bulk` | array of the above (one report) → `{ created, duplicates }` |
+| `POST /labs/import/patient-access` | `{ fileBase64, commit }`: a Patient Access (EMIS) medical record XML. `commit: false` returns a preview (rows with flags, which already exist, skipped lines); `commit: true` saves. Name, date of birth and NHS number in the file are never read |
 | `PUT /labs/:id` · `DELETE /labs/:id` | delete is a tombstone (and removes it from Apple Health on next phone sync) |
 
 ## Food & insights
@@ -68,6 +69,22 @@ Base URL: `http://<server>:4477/api`. JSON in, JSON out. Everything except `/hea
 | `POST /ai/assess` | `{ from, to }` (≤ 31 days) → `{ markdown }` |
 
 Meals are `meal` events with `data.kcal`, `protein_g`, `carbs_g`, `fat_g`, `fibre_g`, `slot`, `items`. Water is a `drink` event with `data.water_ml`.
+
+## Explore ("does X affect Y?")
+| | |
+|---|---|
+| `GET /explore/options?from=&to=` | what X (things logged, words, categories, tags, amounts, ratings) and Y (health metrics, ratings) can be |
+| `GET /explore?from=&to=&x=&y=&lag=&after=` | `x`: `title:` · `text:` · `cat:` · `tag:` · `data:` · `health:` · `rating:`; `y`: a daily health metric or `rating:<category>`; `lag` days (0–3); `after` local hour for event X. Returns groups, difference, correlation, permutation p-value, verdict and a plain sentence |
+| `GET /explore/discover?from=&to=` | the clearest pairs, with a stricter cut-off |
+
+## Reminders
+| | |
+|---|---|
+| `GET /reminders` | reminders with 30-day adherence, streak, days since start |
+| `POST /reminders` · `PUT /reminders/:id` · `DELETE /reminders/:id` | `{ title, kind, supplementKey?, dose?, times: ["08:00"], days: [0–6], startedOn, notes?, active? }` |
+| `GET /reminders/doses?date=` | each dose that day: taken, due, upcoming or missed |
+| `POST /reminders/:id/taken` `{ date, time }` · `DELETE /reminders/:id/taken?date=&time=` | ticking off writes a `supplement`/`medication` event with `data.reminder_id` |
+| `GET /reminders/calendar.ics` | repeating calendar events with alerts, for iPhone/Mac Calendar |
 
 ## Goals & achievements
 | | |

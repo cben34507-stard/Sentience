@@ -51,3 +51,7 @@ private/
 *.pem
 *.crt
 db.key
+# GP record exports (Patient Access / NHS app)
+medical-record-export*
+*medical*record*.xml
+*patient*access*.xml
